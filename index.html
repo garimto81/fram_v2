@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>포커스 이슈 탐지기 - Ver 0.56 (업로드 제어 기능)</title>
+    <title>포커스 이슈 탐지기 - Ver 0.58 (시간제한 제거)</title>
     <script src="https://cdn.tailwindcss.com"></script>
     <link href="https://fonts.googleapis.com/css2?family=Noto+Sans+KR:wght@400;500;700&display=swap" rel="stylesheet">
     <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
@@ -137,9 +137,9 @@
         import { initializeApp, deleteApp } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-app.js";
         import { getAuth, signInAnonymously, onAuthStateChanged } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-auth.js";
         import { getFirestore, collection, addDoc, onSnapshot, doc, updateDoc, deleteDoc, serverTimestamp } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-firestore.js";
-        import { getStorage, ref, uploadString, getDownloadURL, deleteObject, uploadBytesResumable } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-storage.js";
+        import { getStorage, ref, uploadBytesResumable, getDownloadURL, deleteObject } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-storage.js";
 
-        const APP_VERSION = "0.56";
+        const APP_VERSION = "0.58";
         document.title = `포커스 이슈 탐지기 - Ver ${APP_VERSION}`;
         document.getElementById('version-display').textContent = `Ver ${APP_VERSION}`;
         
@@ -376,6 +376,19 @@
             arrow.style.transform = event.target.open ? 'rotate(90deg)' : 'rotate(0deg)';
         });
 
+        // --- Helper Function to convert Data URL to Blob ---
+        function dataURLtoBlob(dataurl) {
+            if (!dataurl) return null;
+            const arr = dataurl.split(','), mime = arr[0].match(/:(.*?);/)[1];
+            const bstr = atob(arr[1]);
+            let n = bstr.length;
+            const u8arr = new Uint8Array(n);
+            while(n--){
+                u8arr[n] = bstr.charCodeAt(n);
+            }
+            return new Blob([u8arr], {type:mime});
+        }
+
         // --- Core Logic & Render Functions ---
         function calculateFocusScore(imageData) {
             const { width, height, data } = imageData; if (width === 0 || height === 0) return 0; const gray = new Uint8Array(width * height); for (let i = 0; i < data.length; i += 4) { gray[i / 4] = 0.299 * data[i] + 0.587 * data[i+1] + 0.114 * data[i+2]; } let laplacianMean = 0; const laplacianValues = []; for (let y = 1; y < height - 1; y++) { for (let x = 1; x < width - 1; x++) { const i = y * width + x; const laplacian = gray[i - width] + gray[i + width] + gray[i - 1] + gray[i + 1] - 4 * gray[i]; laplacianValues.push(laplacian); laplacianMean += laplacian; } } if (laplacianValues.length === 0) return 0; laplacianMean /= laplacianValues.length; return laplacianValues.reduce((acc, val) => acc + Math.pow(val - laplacianMean, 2), 0) / laplacianValues.length;
@@ -582,14 +595,12 @@
             }
         });
 
-        async function uploadWithProgress(storageRef, dataUrl, signal) {
+        async function uploadWithProgress(storageRef, blob, signal) {
             return new Promise((resolve, reject) => {
-                const uploadTask = uploadBytesResumable(storageRef, dataUrl, { contentType: 'image/jpeg' });
-                
-                let timeoutId = setTimeout(() => {
-                    uploadTask.cancel();
-                    reject(new Error('storage/timeout'));
-                }, 90000); // 90초 타임아웃
+                if (!blob) {
+                    return reject(new Error("업로드할 데이터가 없습니다. (null blob)"));
+                }
+                const uploadTask = uploadBytesResumable(storageRef, blob);
 
                 const unsubscribe = uploadTask.on('state_changed', 
                     (snapshot) => {
@@ -597,12 +608,10 @@
                         uploadProgressBar.style.width = `${progress}%`;
                     }, 
                     (error) => {
-                        clearTimeout(timeoutId);
                         unsubscribe();
                         reject(error);
                     }, 
                     async () => {
-                        clearTimeout(timeoutId);
                         unsubscribe();
                         const downloadURL = await getDownloadURL(uploadTask.snapshot.ref);
                         resolve(downloadURL);
@@ -610,10 +619,8 @@
                 );
                 
                 signal.addEventListener('abort', () => {
-                    clearTimeout(timeoutId);
                     unsubscribe();
                     uploadTask.cancel();
-                    reject(new Error('storage/canceled-by-user'));
                 });
             });
         }
@@ -697,12 +704,16 @@
                             const timestamp = Date.now();
 
                             progressText.textContent = `에셋 업로드 중... (${k + 1}/${totalKeyFrames})`;
+                            
+                            const sharpBlob = dataURLtoBlob(kf.sharpFrameData);
+                            const blurryBlob = dataURLtoBlob(kf.blurryFrameData);
 
                             const sharpRef = ref(storage, `artifacts/${appId}/users/${userId}/assets/${timestamp}_sharp.jpeg`);
                             const blurryRef = ref(storage, `artifacts/${appId}/users/${userId}/assets/${timestamp}_blurry.jpeg`);
 
-                            const sharpUrl = await uploadWithProgress(sharpRef, kf.sharpFrameData, signal);
-                            const blurryUrl = await uploadWithProgress(blurryRef, kf.blurryFrameData, signal);
+                            // Upload pairs sequentially to show progress for each
+                            const sharpUrl = await uploadWithProgress(sharpRef, sharpBlob, signal);
+                            const blurryUrl = await uploadWithProgress(blurryRef, blurryBlob, signal);
                             
                             uploadedKeyFrames.push({ time: kf.time, sharpUrl, blurryUrl });
                         }
@@ -721,8 +732,8 @@
                     URL.revokeObjectURL(fileURL);
                 }
             } catch (error) {
-                if (error.message.includes('abort') || error.message.includes('cancel') || error.message.includes('timeout')) {
-                    appendLog(`분석/업로드 중단됨: ${error.message}`, 'text-yellow-500');
+                if (error.code === 'storage/canceled' || (error.message && error.message.includes('canceled'))) {
+                    appendLog(`분석/업로드 중단됨: 사용자가 취소했습니다.`, 'text-yellow-500');
                 } else {
                     appendLog(`분석 중 오류 발생: ${error.message}`, 'text-red-500');
                 }
