@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>포커스 이슈 탐지기 - Ver 0.64 (반응형 중단)</title>
+    <title>포커스 이슈 탐지기 - Ver 0.66 (이미지 로그)</title>
     <script src="https://cdn.tailwindcss.com"></script>
     <link href="https://fonts.googleapis.com/css2?family=Noto+Sans+KR:wght@400;500;700&display=swap" rel="stylesheet">
     <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
@@ -139,7 +139,7 @@
         import { getFirestore, collection, addDoc, onSnapshot, doc, updateDoc, deleteDoc, serverTimestamp } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-firestore.js";
         import { getStorage, ref, uploadBytesResumable, getDownloadURL, deleteObject } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-storage.js";
 
-        const APP_VERSION = "0.64";
+        const APP_VERSION = "0.66";
         document.title = `포커스 이슈 탐지기 - Ver ${APP_VERSION}`;
         document.getElementById('version-display').textContent = `Ver ${APP_VERSION}`;
         
@@ -190,6 +190,26 @@
             const logEntry = document.createElement('div');
             logEntry.textContent = `[${new Date().toLocaleTimeString()}] ${message}`;
             logEntry.className = colorClass;
+            logContainer.appendChild(logEntry);
+            logContainer.scrollTop = logContainer.scrollHeight;
+        }
+
+        function appendImageLog(sharpUrl, blurryUrl, time) {
+            const logEntry = document.createElement('div');
+            logEntry.className = 'p-2 my-2 border border-gray-700 rounded-md';
+            logEntry.innerHTML = `
+                <p class="text-sm font-semibold text-yellow-400">문제 프레임 감지 @ ${time.toFixed(2)}초</p>
+                <div class="flex gap-2 mt-1">
+                    <div class="flex-1">
+                        <p class="text-xs text-green-400 mb-1">이전 프레임</p>
+                        <img src="${sharpUrl}" class="w-full rounded">
+                    </div>
+                    <div class="flex-1">
+                        <p class="text-xs text-red-400 mb-1">문제 프레임</p>
+                        <img src="${blurryUrl}" class="w-full rounded">
+                    </div>
+                </div>
+            `;
             logContainer.appendChild(logEntry);
             logContainer.scrollTop = logContainer.scrollHeight;
         }
@@ -692,6 +712,7 @@
                         }
 
                         if (currentStatus === '흐림' && previousFrameState.status === '선명') {
+                             appendImageLog(previousFrameState.dataURL, analysisCanvas.toDataURL('image/jpeg', 0.8), currentTime);
                              keyFramesData.push({
                                 time: currentTime,
                                 sharpFrameData: previousFrameState.dataURL,
@@ -766,4 +787,3 @@
     </script>
 </body>
 </html>
-" from the canv
