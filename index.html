@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>포커스 이슈 탐지기 - Ver 0.52 (업로드 파일 크기 로깅)</title>
+    <title>포커스 이슈 탐지기 - Ver 0.53 (상세 분석 로깅)</title>
     <script src="https://cdn.tailwindcss.com"></script>
     <link href="https://fonts.googleapis.com/css2?family=Noto+Sans+KR:wght@400;500;700&display=swap" rel="stylesheet">
     <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
@@ -128,7 +128,7 @@
         import { getFirestore, collection, addDoc, onSnapshot, doc, updateDoc, deleteDoc, serverTimestamp } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-firestore.js";
         import { getStorage, ref, uploadString, getDownloadURL, deleteObject } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-storage.js";
 
-        const APP_VERSION = "0.52";
+        const APP_VERSION = "0.53";
         document.title = `포커스 이슈 탐지기 - Ver ${APP_VERSION}`;
         document.getElementById('version-display').textContent = `Ver ${APP_VERSION}`;
         
@@ -378,29 +378,6 @@
             }
         });
 
-        // --- Image Resizing Function ---
-        function resizeImage(dataUrl, maxWidth) {
-            return new Promise((resolve, reject) => {
-                const img = new Image();
-                img.onload = () => {
-                    const canvas = document.createElement('canvas');
-                    const ctx = canvas.getContext('2d');
-                    
-                    const ratio = img.width / img.height;
-                    const width = Math.min(img.width, maxWidth);
-                    const height = width / ratio;
-
-                    canvas.width = width;
-                    canvas.height = height;
-                    
-                    ctx.drawImage(img, 0, 0, width, height);
-                    resolve(canvas.toDataURL('image/jpeg', 0.85)); // Use quality 0.85
-                };
-                img.onerror = (err) => reject(err);
-                img.src = dataUrl;
-            });
-        }
-
         // --- Core Logic & Render Functions ---
         function calculateFocusScore(imageData) {
             const { width, height, data } = imageData; if (width === 0 || height === 0) return 0; const gray = new Uint8Array(width * height); for (let i = 0; i < data.length; i += 4) { gray[i / 4] = 0.299 * data[i] + 0.587 * data[i+1] + 0.114 * data[i+2]; } let laplacianMean = 0; const laplacianValues = []; for (let y = 1; y < height - 1; y++) { for (let x = 1; x < width - 1; x++) { const i = y * width + x; const laplacian = gray[i - width] + gray[i + width] + gray[i - 1] + gray[i + 1] - 4 * gray[i]; laplacianValues.push(laplacian); laplacianMean += laplacian; } } if (laplacianValues.length === 0) return 0; laplacianMean /= laplacianValues.length; return laplacianValues.reduce((acc, val) => acc + Math.pow(val - laplacianMean, 2), 0) / laplacianValues.length;
@@ -627,22 +604,29 @@
             
             for (let i = 0; i < videoFiles.length; i++) {
                 const file = videoFiles[i];
-                appendLog(`'${file.name}' 분석 시작...`, 'text-cyan-400');
+                appendLog(`[파일 ${i+1}/${videoFiles.length}] '${file.name}' 분석 시작...`, 'text-cyan-400');
                 
                 const fileURL = URL.createObjectURL(file);
                 analysisVideo.src = fileURL;
 
-                const duration = await new Promise(resolve => { analysisVideo.onloadedmetadata = () => resolve(analysisVideo.duration); });
+                const duration = await new Promise(resolve => { 
+                    analysisVideo.onloadedmetadata = () => {
+                        appendLog(`영상 메타데이터 로드 완료. (길이: ${analysisVideo.duration.toFixed(2)}초, 크기: ${analysisVideo.videoWidth}x${analysisVideo.videoHeight})`, 'text-gray-400');
+                        resolve(analysisVideo.duration); 
+                    };
+                });
                 
                 const frameScores = [];
                 let previousFrameState = { status: '미검출', dataURL: null };
                 const keyFramesData = [];
                 const SAMPLING_INTERVAL_SECONDS = 0.5;
                 const totalSamples = Math.floor(duration / SAMPLING_INTERVAL_SECONDS);
+                appendLog(`총 ${totalSamples}개의 프레임을 샘플링합니다. (간격: ${SAMPLING_INTERVAL_SECONDS}초)`, 'text-gray-400');
                 
                 for (let j = 0; j < totalSamples; j++) {
                     const currentTime = j * SAMPLING_INTERVAL_SECONDS;
-                    progressText.textContent = `분석 중... (${i + 1}/${videoFiles.length}) - ${file.name} (${((j/totalSamples)*100).toFixed(0)}%)`;
+                    progressText.textContent = `분석 중... (${i + 1}/${videoFiles.length}) - 프레임 ${j + 1}/${totalSamples}`;
+                    
                     await new Promise(resolve => { analysisVideo.onseeked = () => resolve(); analysisVideo.currentTime = currentTime; });
                     
                     if (analysisCanvas.width !== analysisVideo.videoWidth) analysisCanvas.width = analysisVideo.videoWidth;
@@ -664,6 +648,7 @@
                     }
 
                     if (currentStatus === '흐림' && (previousFrameState.status === '선명')) {
+                         appendLog(`[프레임 ${j+1}] 문제 프레임 감지! @ ${currentTime.toFixed(2)}초`, 'text-yellow-400');
                          keyFramesData.push({
                             time: currentTime,
                             sharpFrameData: previousFrameState.dataURL,
@@ -677,28 +662,26 @@
                     };
                 }
                 
+                appendLog(`프레임 분석 완료. 총 ${keyFramesData.length}개의 문제 프레임 감지.`, 'text-green-500');
+
                 const uploadedKeyFrames = [];
                 const totalKeyFrames = keyFramesData.length;
 
                 if (totalKeyFrames > 0) {
+                    appendLog(`에셋 업로드 시작... (총 ${totalKeyFrames}개 쌍)`, 'text-cyan-400');
                     for (let k = 0; k < totalKeyFrames; k++) {
                         const kf = keyFramesData[k];
                         progressText.textContent = `'${file.name}' 에셋 업로드 중... (${k + 1}/${totalKeyFrames})`;
                         
-                        // Calculate approximate file sizes for logging
                         const getApproximateSize = (dataUrl) => {
-                            if (!dataUrl) return 0;
-                            // Base64 string is ~33% larger than binary.
+                            if (!dataUrl) return "0 KB";
                             const sizeInBytes = Math.round(dataUrl.length * 0.75);
-                            if (sizeInBytes > 1024 * 1024) {
-                                return `${(sizeInBytes / (1024 * 1024)).toFixed(2)} MB`;
-                            }
-                            return `${(sizeInBytes / 1024).toFixed(2)} KB`;
+                            return sizeInBytes > 1024 * 1024 ? `${(sizeInBytes / (1024 * 1024)).toFixed(2)} MB` : `${(sizeInBytes / 1024).toFixed(2)} KB`;
                         };
 
                         const sharpSize = getApproximateSize(kf.sharpFrameData);
                         const blurrySize = getApproximateSize(kf.blurryFrameData);
-                        appendLog(`업로드 시도: ${k + 1}/${totalKeyFrames} (선명: ${sharpSize}, 흐림: ${blurrySize})`, 'text-yellow-400');
+                        appendLog(`[업로드 ${k + 1}/${totalKeyFrames}] 시도 (선명: ${sharpSize}, 흐림: ${blurrySize})`, 'text-gray-400');
 
                         const timestamp = Date.now();
                         const sharpFileName = `${timestamp}_${kf.time.toFixed(2)}s_sharp.jpeg`;
@@ -717,16 +700,17 @@
                                 getDownloadURL(blurryUploadResult.ref)
                             ]);
                             uploadedKeyFrames.push({ time: kf.time, sharpUrl, blurryUrl });
-                            appendLog(`에셋 업로드 성공: ${k + 1}/${totalKeyFrames} (시간: ${kf.time.toFixed(2)}s)`, 'text-gray-400');
+                            appendLog(`[업로드 ${k + 1}/${totalKeyFrames}] 성공`, 'text-green-500');
 
                         } catch (error) {
-                            appendLog(`에셋 업로드 실패 (시간: ${kf.time.toFixed(2)}s): ${error.code} - ${error.message}`, 'text-red-500');
+                            appendLog(`[업로드 ${k + 1}/${totalKeyFrames}] 실패: ${error.code}`, 'text-red-500');
                         }
                     }
                 } else {
                     progressText.textContent = `'${file.name}' 분석 완료 (업로드할 에셋 없음)`;
                 }
 
+                appendLog(`Firestore에 분석 결과 저장 시도...`, 'text-cyan-400');
                 const totalScore = frameScores.reduce((sum, frame) => sum + frame.score, 0);
                 const avgScore = frameScores.length > 0 ? totalScore / frameScores.length : 0;
                 
