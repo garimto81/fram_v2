@@ -687,8 +687,14 @@
                         const sharpFileName = `${timestamp}_${kf.time.toFixed(2)}s_sharp.jpeg`;
                         const blurryFileName = `${timestamp}_${kf.time.toFixed(2)}s_blurry.jpeg`;
                         
-                        const sharpStorageRef = ref(storage, `artifacts/${appId}/users/${userId}/assets/${sharpFileName}`);
-                        const blurryStorageRef = ref(storage, `artifacts/${appId}/users/${userId}/assets/${blurryFileName}`);
+                        const sharpStoragePath = `artifacts/${appId}/users/${userId}/assets/${sharpFileName}`;
+                        const blurryStoragePath = `artifacts/${appId}/users/${userId}/assets/${blurryFileName}`;
+                        
+                        appendLog(`  - 선명 프레임 경로: ${sharpStoragePath}`, 'text-gray-500');
+                        appendLog(`  - 흐림 프레임 경로: ${blurryStoragePath}`, 'text-gray-500');
+
+                        const sharpStorageRef = ref(storage, sharpStoragePath);
+                        const blurryStorageRef = ref(storage, blurryStoragePath);
 
                         try {
                             const [sharpUploadResult, blurryUploadResult] = await Promise.all([
@@ -703,7 +709,8 @@
                             appendLog(`[업로드 ${k + 1}/${totalKeyFrames}] 성공`, 'text-green-500');
 
                         } catch (error) {
-                            appendLog(`[업로드 ${k + 1}/${totalKeyFrames}] 실패: ${error.code}`, 'text-red-500');
+                            appendLog(`[업로드 ${k + 1}/${totalKeyFrames}] 실패: ${error.code} - ${error.message}`, 'text-red-500');
+                            console.error("Upload Error Details:", error);
                         }
                     }
                 } else {
