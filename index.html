@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>포커스 이슈 탐지기 - Ver 0.79 (UI 개선)</title>
+    <title>포커스 이슈 탐지기 - Ver 0.77 (연결 진단)</title>
     <script src="https://cdn.tailwindcss.com"></script>
     <link href="https://fonts.googleapis.com/css2?family=Noto+Sans+KR:wght@400;500;700&display=swap" rel="stylesheet">
     <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
@@ -115,7 +115,7 @@
             <!-- Log Container -->
             <div class="bg-white p-6 rounded-2xl shadow-lg">
                 <h2 class="text-xl font-semibold mb-4 border-b pb-2">실시간 분석 로그</h2>
-                <div id="log-container" class="min-h-[10rem] max-h-[40rem] overflow-y-auto bg-gray-900 text-white font-mono rounded-lg p-4 border text-sm"><p id="log-placeholder" class="text-gray-400 text-center py-4">분석을 시작하거나 과거 기록을 선택하면 로그가 표시됩니다.</p></div>
+                <div id="log-container" class="h-96 overflow-y-auto bg-gray-900 text-white font-mono rounded-lg p-4 border text-sm"><p id="log-placeholder" class="text-gray-400 text-center py-4">분석을 시작하거나 과거 기록을 선택하면 로그가 표시됩니다.</p></div>
             </div>
         </main>
     </div>
@@ -139,7 +139,7 @@
         import { getFirestore, collection, addDoc, onSnapshot, doc, updateDoc, deleteDoc, serverTimestamp } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-firestore.js";
         import { getStorage, ref, uploadBytesResumable, getDownloadURL, deleteObject } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-storage.js";
 
-        const APP_VERSION = "0.79";
+        const APP_VERSION = "0.77";
         document.title = `포커스 이슈 탐지기 - Ver ${APP_VERSION}`;
         document.getElementById('version-display').textContent = `Ver ${APP_VERSION}`;
         
@@ -630,7 +630,7 @@
         }
 
         async function handleManualCorrection(analysisId, time, action) {
-            const docRef = doc(db, `artifacts/${pathIdentifier}/users/${userId}/analyses`, analysisId);
+            const docRef = doc(db, `public_data/analyses`, analysisId);
             const docData = allAnalysisData.find(d => d.id === analysisId);
             if (!docData) return;
 
@@ -661,7 +661,7 @@
                 const deletePromises = urlsToDelete.map(url => deleteObject(ref(storage, url)));
                 await Promise.all(deletePromises);
 
-                await deleteDoc(doc(db, `artifacts/${pathIdentifier}/users/${userId}/analyses`, analysisId));
+                await deleteDoc(doc(db, `public_data/analyses`, analysisId));
                 
                 if (detailChartCanvas.dataset.analysisId === analysisId) {
                     detailsSection.classList.add('hidden');
@@ -846,10 +846,10 @@
                             };
 
                             const refs = {
-                                sharpFull: ref(storage, `artifacts/${pathIdentifier}/users/${userId}/assets/${timestamp}_sharp_full.jpeg`),
-                                sharpCropped: ref(storage, `artifacts/${pathIdentifier}/users/${userId}/assets/${timestamp}_sharp_crop.jpeg`),
-                                blurryFull: ref(storage, `artifacts/${pathIdentifier}/users/${userId}/assets/${timestamp}_blurry_full.jpeg`),
-                                blurryCropped: ref(storage, `artifacts/${pathIdentifier}/users/${userId}/assets/${timestamp}_blurry_crop.jpeg`)
+                                sharpFull: ref(storage, `public_assets/${timestamp}_sharp_full.jpeg`),
+                                sharpCropped: ref(storage, `public_assets/${timestamp}_sharp_crop.jpeg`),
+                                blurryFull: ref(storage, `public_assets/${timestamp}_blurry_full.jpeg`),
+                                blurryCropped: ref(storage, `public_assets/${timestamp}_blurry_crop.jpeg`)
                             };
 
                             progressText.textContent = `에셋 업로드 중... (${k * 4 + 1}/${totalKeyFrames * 4})`;
@@ -879,7 +879,7 @@
                         problematic: uploadedKeyFrames.length > 0, frameScores, keyFrames: uploadedKeyFrames,
                     };
 
-                    await addDoc(collection(db, `artifacts/${pathIdentifier}/users/${userId}/analyses`), newAnalysis);
+                    await addDoc(collection(db, `public_data/analyses`), newAnalysis);
                     appendLog(`'${file.name}' 분석 완료 및 결과 저장.`, 'text-green-500');
                     URL.revokeObjectURL(fileURL);
                 }
