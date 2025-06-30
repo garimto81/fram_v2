@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>포커스 이슈 탐지기 - Ver 0.77 (연결 진단)</title>
+    <title>포커스 이슈 탐지기 - Ver 0.78 (연결 및 데이터 수정)</title>
     <script src="https://cdn.tailwindcss.com"></script>
     <link href="https://fonts.googleapis.com/css2?family=Noto+Sans+KR:wght@400;500;700&display=swap" rel="stylesheet">
     <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
@@ -139,7 +139,7 @@
         import { getFirestore, collection, addDoc, onSnapshot, doc, updateDoc, deleteDoc, serverTimestamp } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-firestore.js";
         import { getStorage, ref, uploadBytesResumable, getDownloadURL, deleteObject } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-storage.js";
 
-        const APP_VERSION = "0.77";
+        const APP_VERSION = "0.78";
         document.title = `포커스 이슈 탐지기 - Ver ${APP_VERSION}`;
         document.getElementById('version-display').textContent = `Ver ${APP_VERSION}`;
         
@@ -182,7 +182,7 @@
         let userId = null;
         let isAuthReady = false;
         let unsubscribeFromAnalyses = null;
-        let appId = typeof __app_id !== 'undefined' ? __app_id : 'default-app-id';
+        let pathIdentifier = typeof __app_id !== 'undefined' ? __app_id : 'default-app-id';
 
         // --- UI & Log Functions ---
         function appendLog(message, colorClass = 'text-gray-400') {
@@ -293,6 +293,7 @@
                     config = parseFirebaseConfig(savedConfig);
                     firebaseConfigInput.value = savedConfig;
                     isCustomConfig = true;
+                    pathIdentifier = config.projectId; // Use projectId for custom configs
                     appendLog(`저장된 커스텀 Firebase 설정으로 연결합니다: ${config.projectId}`, 'text-yellow-400');
                 } catch (e) {
                     appendLog('저장된 커스텀 Firebase 설정이 잘못되었습니다. 기본 설정으로 연결합니다.', 'text-red-500');
@@ -303,6 +304,7 @@
             if (!config) {
                 try {
                     config = JSON.parse(typeof __firebase_config !== 'undefined' ? __firebase_config : '{}');
+                    pathIdentifier = typeof __app_id !== 'undefined' ? __app_id : 'default-app-id';
                     appendLog('기본 제공 Firebase 설정으로 연결합니다.', 'text-cyan-400');
                 } catch (e) { /* Should not happen */ }
             }
@@ -368,7 +370,7 @@
             if (!isAuthReady || !userId) return;
             if (unsubscribeFromAnalyses) unsubscribeFromAnalyses();
 
-            const analysesColPath = `artifacts/${appId}/users/${userId}/analyses`;
+            const analysesColPath = `artifacts/${pathIdentifier}/users/${userId}/analyses`;
             unsubscribeFromAnalyses = onSnapshot(collection(db, analysesColPath), (snapshot) => {
                 allAnalysisData = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
                 allAnalysisData.sort((a, b) => (b.timestamp?.seconds ?? 0) - (a.timestamp?.seconds ?? 0));
@@ -593,7 +595,7 @@
         }
 
         async function handleManualCorrection(analysisId, time, action) {
-            const docRef = doc(db, `artifacts/${appId}/users/${userId}/analyses`, analysisId);
+            const docRef = doc(db, `artifacts/${pathIdentifier}/users/${userId}/analyses`, analysisId);
             const docData = allAnalysisData.find(d => d.id === analysisId);
             if (!docData) return;
 
@@ -624,7 +626,7 @@
                 const deletePromises = urlsToDelete.map(url => deleteObject(ref(storage, url)));
                 await Promise.all(deletePromises);
 
-                await deleteDoc(doc(db, `artifacts/${appId}/users/${userId}/analyses`, analysisId));
+                await deleteDoc(doc(db, `artifacts/${pathIdentifier}/users/${userId}/analyses`, analysisId));
                 
                 if (detailChartCanvas.dataset.analysisId === analysisId) {
                     detailsSection.classList.add('hidden');
@@ -708,7 +710,7 @@
 
             try {
                 // Diagnostic Log
-                appendLog(`[진단] 분석 시작 시점의 App ID: ${appId}`, 'text-blue-300');
+                appendLog(`[진단] 분석 시작 시점의 Path Identifier: ${pathIdentifier}`, 'text-blue-300');
                 appendLog(`[진단] 분석 시작 시점의 User ID: ${userId}`, 'text-blue-300');
                 if (!isAuthReady || !userId) {
                     appendLog('오류: 인증 상태가 준비되지 않았습니다. 업로드가 실패할 수 있습니다.', 'text-red-500');
@@ -817,10 +819,10 @@
                             };
 
                             const refs = {
-                                sharpFull: ref(storage, `artifacts/${appId}/users/${userId}/assets/${timestamp}_sharp_full.jpeg`),
-                                sharpCropped: ref(storage, `artifacts/${appId}/users/${userId}/assets/${timestamp}_sharp_crop.jpeg`),
-                                blurryFull: ref(storage, `artifacts/${appId}/users/${userId}/assets/${timestamp}_blurry_full.jpeg`),
-                                blurryCropped: ref(storage, `artifacts/${appId}/users/${userId}/assets/${timestamp}_blurry_crop.jpeg`)
+                                sharpFull: ref(storage, `artifacts/${pathIdentifier}/users/${userId}/assets/${timestamp}_sharp_full.jpeg`),
+                                sharpCropped: ref(storage, `artifacts/${pathIdentifier}/users/${userId}/assets/${timestamp}_sharp_crop.jpeg`),
+                                blurryFull: ref(storage, `artifacts/${pathIdentifier}/users/${userId}/assets/${timestamp}_blurry_full.jpeg`),
+                                blurryCropped: ref(storage, `artifacts/${pathIdentifier}/users/${userId}/assets/${timestamp}_blurry_crop.jpeg`)
                             };
 
                             progressText.textContent = `에셋 업로드 중... (${k * 4 + 1}/${totalKeyFrames * 4})`;
@@ -835,7 +837,8 @@
                             uploadedKeyFrames.push({ 
                                 time: kf.time, 
                                 sharpFullUrl, sharpCroppedUrl, blurryFullUrl, blurryCroppedUrl, 
-                                sharpBox: kf.sharpBox, blurryBox: kf.blurryBox,
+                                sharpBox: kf.sharpBox ? {x: kf.sharpBox.x, y: kf.sharpBox.y, width: kf.sharpBox.width, height: kf.sharpBox.height} : null,
+                                blurryBox: kf.blurryBox ? {x: kf.blurryBox.x, y: kf.blurryBox.y, width: kf.blurryBox.width, height: kf.blurryBox.height} : null,
                                 sharpScore: kf.sharpScore, blurryScore: kf.blurryScore
                             });
                         }
@@ -849,7 +852,7 @@
                         problematic: uploadedKeyFrames.length > 0, frameScores, keyFrames: uploadedKeyFrames,
                     };
 
-                    await addDoc(collection(db, `artifacts/${appId}/users/${userId}/analyses`), newAnalysis);
+                    await addDoc(collection(db, `artifacts/${pathIdentifier}/users/${userId}/analyses`), newAnalysis);
                     appendLog(`'${file.name}' 분석 완료 및 결과 저장.`, 'text-green-500');
                     URL.revokeObjectURL(fileURL);
                 }
