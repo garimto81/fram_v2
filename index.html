@@ -1,0 +1,697 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>포커스 이슈 탐지기 - Ver 0.50 (커스텀 DB 연동)</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <link href="https://fonts.googleapis.com/css2?family=Noto+Sans+KR:wght@400;500;700&display=swap" rel="stylesheet">
+    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/face-api.js@0.22.2/dist/face-api.min.js"></script>
+    <style>
+        body { font-family: 'Noto Sans KR', sans-serif; scroll-behavior: smooth; }
+        .loader { border: 5px solid #f3f3f3; border-top: 5px solid #3498db; border-radius: 50%; width: 50px; height: 50px; animation: spin 1s linear infinite; }
+        @keyframes spin { 0% { transform: rotate(0deg); } 100% { transform: rotate(360deg); } }
+        .result-item:hover { background-color: #f0f9ff; }
+        .result-item.selected { background-color: #dbeafe; }
+        #custom-modal-overlay { background-color: rgba(0, 0, 0, 0.5); }
+        details > summary { list-style: none; }
+        details > summary::-webkit-details-marker { display: none; }
+    </style>
+</head>
+<body class="bg-gray-100 text-gray-800">
+
+    <div class="container mx-auto p-4 md:p-8 max-w-7xl">
+        <header class="relative text-center mb-8 py-4">
+            <h1 class="text-2xl md:text-3xl font-bold text-gray-900">
+                포커스 이슈 탐지기
+                <span id="version-display" class="text-base align-middle text-blue-600 font-semibold"></span>
+            </h1>
+            <p id="connection-status" class="text-sm text-gray-500 mt-1">연결 상태: 확인 중...</p>
+            <p id="model-status" class="text-sm text-yellow-600 mt-1">인식 모델 로딩 중...</p>
+        </header>
+        
+        <main class="space-y-8">
+            <!-- 0. Firebase Config Section -->
+            <div class="bg-white p-6 rounded-2xl shadow-lg">
+                <details>
+                    <summary class="cursor-pointer text-lg font-semibold text-gray-700 hover:text-blue-600 transition-colors">
+                        <span class="arrow inline-block transition-transform duration-200">▶</span> Firebase 연결 설정 (선택 사항)
+                    </summary>
+                    <div class="mt-4 border-t pt-4 space-y-4">
+                        <p class="text-sm text-gray-600">
+                            별도의 Firebase 프로젝트를 사용하려면, Firebase 콘솔에서 '프로젝트 설정' > '일반' 탭 하단의 '내 앱' 섹션에서 '구성' 객체(JSON)를 복사하여 아래에 붙여넣으세요.
+                        </p>
+                        <textarea id="firebase-config-input" rows="6" class="w-full p-2 border rounded-md font-mono text-sm" placeholder="{ apiKey: &quot;...&quot;, authDomain: &quot;...&quot;, ... }"></textarea>
+                        <div class="flex flex-col sm:flex-row gap-2">
+                            <button id="save-config-btn" class="flex-1 bg-blue-600 text-white font-bold py-2 px-4 rounded-full hover:bg-blue-700 transition">저장 및 다시 연결</button>
+                            <button id="revert-config-btn" class="flex-1 bg-gray-500 text-white font-bold py-2 px-4 rounded-full hover:bg-gray-600 transition">기본 연결로 복원</button>
+                        </div>
+                    </div>
+                </details>
+            </div>
+
+            <!-- 1. Control Panel -->
+            <div class="bg-white p-6 rounded-2xl shadow-lg">
+                <h2 class="text-xl font-semibold mb-4 border-b pb-2">1. 제어 패널</h2>
+                <div class="grid grid-cols-1 md:grid-cols-2 gap-6 items-center">
+                    <div>
+                        <label for="video-files-input" class="block text-sm font-medium text-gray-700 mb-1">영상 파일 선택</label>
+                        <input type="file" id="video-files-input" multiple accept="video/mp4,video/quicktime,.mov" class="block w-full text-sm text-gray-500 file:mr-4 file:py-2 file:px-4 file:rounded-full file:border-0 file:text-sm file:font-semibold file:bg-blue-50 file:text-blue-700 hover:file:bg-blue-100 cursor-pointer"/>
+                    </div>
+                     <div class="space-y-2">
+                        <label for="threshold-slider" class="block text-sm font-medium text-gray-700">흐림 기준값 (낮을수록 민감)</label>
+                        <div class="flex items-center gap-2">
+                            <input type="range" id="threshold-slider" min="0" max="200" value="50" class="w-full h-2 bg-gray-200 rounded-lg appearance-none cursor-pointer">
+                            <span id="threshold-value" class="font-bold text-lg text-blue-600 w-12 text-center">50</span>
+                        </div>
+                    </div>
+                </div>
+                <div class="mt-6 text-center">
+                     <button id="analyze-button" class="w-full md:w-auto bg-green-600 text-white font-bold py-3 px-12 rounded-full hover:bg-green-700 transition duration-300 disabled:bg-gray-400 disabled:cursor-not-allowed">
+                        분석 시작
+                    </button>
+                    <div id="loading-indicator" class="hidden mt-4 flex flex-col items-center"><div class="loader"></div><p id="progress-text" class="text-gray-600 mt-2"></p></div>
+                </div>
+            </div>
+
+            <!-- 2. Analysis History -->
+            <div class="bg-white p-6 rounded-2xl shadow-lg">
+                 <h2 class="text-xl font-semibold mb-4 border-b pb-2">2. 분석 기록</h2>
+                 <div id="results-list-container" class="space-y-1">
+                     <p id="results-list-placeholder" class="text-gray-500 text-center py-4">인증이 완료되면 기록을 불러옵니다...</p>
+                 </div>
+                 <div id="pagination-controls" class="pt-4 mt-4 border-t flex justify-center gap-2"></div>
+            </div>
+
+            <!-- 3 & 4. Details Section -->
+            <div id="details-section" class="hidden space-y-8">
+                <div class="bg-white p-6 rounded-2xl shadow-lg">
+                      <h2 id="details-title" class="text-xl font-semibold mb-4 border-b pb-2">3. 상세 분석 그래프</h2>
+                      <p class="text-sm text-gray-600 mb-2 -mt-2">그래프 위 빨간 점에 마우스를 올리면 주요 프레임을 확인할 수 있습니다.</p>
+                      <div id="chart-container" class="relative h-48 md:h-64">
+                          <canvas id="detail-chart"></canvas>
+                      </div>
+                </div>
+                 <div class="bg-white p-6 rounded-2xl shadow-lg">
+                    <h2 class="text-xl font-semibold mb-4 border-b pb-2">4. 주요 프레임 보기</h2>
+                    <div id="key-frames-container" class="space-y-4">
+                        <p id="key-frames-placeholder" class="text-gray-500 text-center py-4">이 분석에는 감지된 문제 프레임이 없거나, 아직 기록이 선택되지 않았습니다.</p>
+                    </div>
+                </div>
+            </div>
+            
+            <!-- Log Container -->
+            <div class="bg-white p-6 rounded-2xl shadow-lg">
+                <h2 class="text-xl font-semibold mb-4 border-b pb-2">실시간 분석 로그</h2>
+                <div id="log-container" class="h-96 overflow-y-auto bg-gray-900 text-white font-mono rounded-lg p-4 border text-sm"><p id="log-placeholder" class="text-gray-400 text-center py-4">분석을 시작하거나 과거 기록을 선택하면 로그가 표시됩니다.</p></div>
+            </div>
+        </main>
+    </div>
+
+    <!-- Custom Modal for Confirmation -->
+    <div id="custom-modal-overlay" class="hidden fixed inset-0 z-50 flex items-center justify-center transition-opacity duration-300">
+        <div id="custom-modal" class="bg-white rounded-lg shadow-xl p-6 w-11/12 max-w-md transform transition-transform duration-300 scale-95">
+            <h3 id="modal-title" class="text-lg font-bold text-gray-900">확인</h3>
+            <p id="modal-message" class="mt-2 text-sm text-gray-600">이 작업을 정말로 수행하시겠습니까?</p>
+            <div class="mt-6 flex justify-end space-x-3">
+                <button id="modal-cancel-btn" class="px-4 py-2 bg-gray-200 text-gray-800 rounded-md hover:bg-gray-300">취소</button>
+                <button id="modal-confirm-btn" class="px-4 py-2 bg-red-600 text-white rounded-md hover:bg-red-700">확인</button>
+            </div>
+        </div>
+    </div>
+
+    <script type="module">
+        // Firebase 11.x SDK
+        import { initializeApp, deleteApp } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-app.js";
+        import { getAuth, signInAnonymously, onAuthStateChanged } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-auth.js";
+        import { getFirestore, collection, addDoc, onSnapshot, doc, updateDoc, deleteDoc, serverTimestamp } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-firestore.js";
+        import { getStorage, ref, uploadString, getDownloadURL, deleteObject } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-storage.js";
+
+        const APP_VERSION = "0.50";
+        document.title = `포커스 이슈 탐지기 - Ver ${APP_VERSION}`;
+        document.getElementById('version-display').textContent = `Ver ${APP_VERSION}`;
+        
+        // --- DOM References ---
+        const connectionStatus = document.getElementById('connection-status');
+        const modelStatus = document.getElementById('model-status');
+        const firebaseConfigInput = document.getElementById('firebase-config-input');
+        const saveConfigBtn = document.getElementById('save-config-btn');
+        const revertConfigBtn = document.getElementById('revert-config-btn');
+        const videoFilesInput = document.getElementById('video-files-input');
+        const thresholdSlider = document.getElementById('threshold-slider');
+        const thresholdValueEl = document.getElementById('threshold-value');
+        const analyzeButton = document.getElementById('analyze-button');
+        const loadingIndicator = document.getElementById('loading-indicator');
+        const progressText = document.getElementById('progress-text');
+        const resultsListContainer = document.getElementById('results-list-container');
+        const resultsListPlaceholder = document.getElementById('results-list-placeholder');
+        const paginationControls = document.getElementById('pagination-controls');
+        const detailsSection = document.getElementById('details-section');
+        const detailsTitle = document.getElementById('details-title');
+        const detailChartCanvas = document.getElementById('detail-chart');
+        const logContainer = document.getElementById('log-container');
+        const keyFramesContainer = document.getElementById('key-frames-container');
+
+        // --- Global State ---
+        let videoFiles = [];
+        let modelsLoaded = false;
+        const MODEL_URL = 'https://cdn.jsdelivr.net/gh/justadudewhohacks/face-api.js@0.22.2/weights';
+        let allAnalysisData = [];
+        let detailChart = null;
+        let currentPage = 1;
+        const ITEMS_PER_PAGE = 20;
+
+        // --- Firebase State ---
+        let app, auth, db, storage;
+        let userId = null;
+        let isAuthReady = false;
+        let unsubscribeFromAnalyses = null;
+        const appId = typeof __app_id !== 'undefined' ? __app_id : 'default-app-id';
+
+        // --- UI & Log Functions ---
+        function appendLog(message, colorClass = 'text-gray-400') {
+            if (logContainer.querySelector("#log-placeholder")) logContainer.innerHTML = '';
+            const logEntry = document.createElement('div');
+            logEntry.textContent = `[${new Date().toLocaleTimeString()}] ${message}`;
+            logEntry.className = colorClass;
+            logContainer.appendChild(logEntry);
+            logContainer.scrollTop = logContainer.scrollHeight;
+        }
+
+        // --- Custom Modal Logic ---
+        const modalOverlay = document.getElementById('custom-modal-overlay');
+        const modal = document.getElementById('custom-modal');
+        const modalTitle = document.getElementById('modal-title');
+        const modalMessage = document.getElementById('modal-message');
+        const modalCancelBtn = document.getElementById('modal-cancel-btn');
+        const modalConfirmBtn = document.getElementById('modal-confirm-btn');
+        let modalResolve = null;
+
+        function showConfirmationModal(title, message) {
+            modalTitle.textContent = title;
+            modalMessage.textContent = message;
+            modalOverlay.classList.remove('hidden');
+            setTimeout(() => modal.classList.remove('scale-95'), 10);
+            return new Promise(resolve => { modalResolve = resolve; });
+        }
+
+        function closeModal(result) {
+            modal.classList.add('scale-95');
+            setTimeout(() => modalOverlay.classList.add('hidden'), 300);
+            if (modalResolve) { modalResolve(result); modalResolve = null; }
+        }
+        modalCancelBtn.addEventListener('click', () => closeModal(false));
+        modalConfirmBtn.addEventListener('click', () => closeModal(true));
+        modalOverlay.addEventListener('click', (e) => { if (e.target === modalOverlay) closeModal(false); });
+
+        // --- Initialization & Firebase Connection Management ---
+        async function initializeFirebase(config) {
+            // Clean up previous instance if it exists
+            if (app) {
+                if (unsubscribeFromAnalyses) unsubscribeFromAnalyses();
+                await deleteApp(app).catch(e => console.warn("Old Firebase app deletion failed:", e));
+            }
+            
+            // Reset state
+            isAuthReady = false;
+            userId = null;
+            allAnalysisData = [];
+            renderAnalysisResultsList();
+            detailsSection.classList.add('hidden');
+
+            app = initializeApp(config);
+            auth = getAuth(app);
+            db = getFirestore(app);
+            storage = getStorage(app);
+
+            setupAuthListener();
+        }
+
+        async function startApp() {
+            const savedConfig = localStorage.getItem('firebaseCustomConfig');
+            let config;
+            let isCustomConfig = false;
+
+            if (savedConfig) {
+                try {
+                    config = JSON.parse(savedConfig);
+                    firebaseConfigInput.value = savedConfig;
+                    isCustomConfig = true;
+                    appendLog('저장된 커스텀 Firebase 설정으로 연결합니다.', 'text-yellow-400');
+                } catch (e) {
+                    appendLog('저장된 커스텀 Firebase 설정이 잘못되었습니다. 기본 설정으로 연결합니다.', 'text-red-500');
+                    localStorage.removeItem('firebaseCustomConfig');
+                }
+            }
+            
+            if (!config) {
+                try {
+                    config = JSON.parse(typeof __firebase_config !== 'undefined' ? __firebase_config : '{}');
+                    appendLog('기본 제공 Firebase 설정으로 연결합니다.', 'text-cyan-400');
+                } catch (e) {
+                    // This case should not happen in a valid environment
+                }
+            }
+
+            if (!config || !config.apiKey) {
+                connectionStatus.textContent = '오류: Firebase 구성 정보를 찾을 수 없습니다.';
+                connectionStatus.className = 'text-sm text-red-600 mt-1';
+                analyzeButton.disabled = true;
+                return;
+            }
+
+            try {
+                await initializeFirebase(config);
+                const statusMsg = isCustomConfig ? '커스텀 DB 연결 성공' : '기본 DB 연결 성공';
+                connectionStatus.textContent = `연결 상태: ${statusMsg}`;
+                connectionStatus.className = 'text-sm text-green-600 mt-1';
+            } catch (e) {
+                connectionStatus.textContent = '오류: Firebase 초기화 실패.';
+                connectionStatus.className = 'text-sm text-red-600 mt-1';
+                appendLog(`Firebase 초기화 오류: ${e.message}`, 'text-red-500');
+                analyzeButton.disabled = true;
+            }
+
+            await loadFaceApiModels();
+        }
+
+        function setupAuthListener() {
+            onAuthStateChanged(auth, async (user) => {
+                if (user) {
+                    userId = user.uid;
+                    isAuthReady = true;
+                    appendLog(`인증 완료 (UID: ${userId})`, 'text-green-500');
+                    updateAnalyzeButtonState();
+                    listenForDataChanges();
+                } else {
+                    try {
+                        await signInAnonymously(auth);
+                    } catch (error) {
+                        console.error("익명 로그인 실패:", error);
+                        appendLog(`인증 실패: ${error.message}`, 'text-red-500');
+                        isAuthReady = false;
+                        updateAnalyzeButtonState();
+                    }
+                }
+            });
+        }
+        
+        async function loadFaceApiModels() {
+            if (modelsLoaded) return;
+            try {
+                await faceapi.nets.tinyFaceDetector.loadFromUri(MODEL_URL);
+                modelsLoaded = true;
+                modelStatus.textContent = '얼굴 인식 모델 로딩 완료!';
+                modelStatus.className = 'text-sm text-green-600 mt-1';
+                updateAnalyzeButtonState();
+            } catch (error) {
+                modelStatus.textContent = '모델 로딩 실패';
+                modelStatus.className = 'text-sm text-red-600 mt-1';
+                console.error(error);
+            }
+        }
+        
+        function listenForDataChanges() {
+            if (!isAuthReady || !userId) return;
+            if (unsubscribeFromAnalyses) unsubscribeFromAnalyses();
+
+            const analysesColPath = `artifacts/${appId}/users/${userId}/analyses`;
+            const analysesCol = collection(db, analysesColPath);
+            
+            unsubscribeFromAnalyses = onSnapshot(analysesCol, (snapshot) => {
+                appendLog(`DB: 실시간 데이터 수신. 총 ${snapshot.size}개 기록.`, 'text-cyan-400');
+                allAnalysisData = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
+                allAnalysisData.sort((a, b) => (b.timestamp?.seconds ?? 0) - (a.timestamp?.seconds ?? 0));
+                renderAnalysisResultsList();
+            }, (error) => {
+                appendLog(`DB 데이터 수신 오류: ${error.message}`, 'text-red-500');
+                console.error("Firestore snapshot error:", error);
+            });
+        }
+
+        function updateAnalyzeButtonState() { 
+            analyzeButton.disabled = videoFiles.length === 0 || !modelsLoaded || !isAuthReady; 
+        }
+
+        // --- Config Buttons Event Listeners ---
+        saveConfigBtn.addEventListener('click', () => {
+            const configText = firebaseConfigInput.value;
+            if (!configText) {
+                showConfirmationModal('오류', 'Firebase 구성(JSON)을 입력해주세요.');
+                return;
+            }
+            try {
+                JSON.parse(configText); // Validate JSON
+                localStorage.setItem('firebaseCustomConfig', configText);
+                showConfirmationModal('성공', '설정이 저장되었습니다. 페이지를 새로고침하여 적용합니다.').then(() => {
+                    location.reload();
+                });
+            } catch (e) {
+                showConfirmationModal('오류', '입력한 구성 정보가 올바른 JSON 형식이 아닙니다.');
+            }
+        });
+
+        revertConfigBtn.addEventListener('click', () => {
+            localStorage.removeItem('firebaseCustomConfig');
+            showConfirmationModal('성공', '기본 설정으로 복원합니다. 페이지를 새로고침하여 적용합니다.').then(() => {
+                location.reload();
+            });
+        });
+
+        document.querySelector('details').addEventListener('toggle', event => {
+            const arrow = event.target.querySelector('.arrow');
+            if (event.target.open) {
+                arrow.style.transform = 'rotate(90deg)';
+            } else {
+                arrow.style.transform = 'rotate(0deg)';
+            }
+        });
+
+        // --- Core Logic & Render Functions ---
+        function calculateFocusScore(imageData) {
+            const { width, height, data } = imageData; if (width === 0 || height === 0) return 0; const gray = new Uint8Array(width * height); for (let i = 0; i < data.length; i += 4) { gray[i / 4] = 0.299 * data[i] + 0.587 * data[i+1] + 0.114 * data[i+2]; } let laplacianMean = 0; const laplacianValues = []; for (let y = 1; y < height - 1; y++) { for (let x = 1; x < width - 1; x++) { const i = y * width + x; const laplacian = gray[i - width] + gray[i + width] + gray[i - 1] + gray[i + 1] - 4 * gray[i]; laplacianValues.push(laplacian); laplacianMean += laplacian; } } if (laplacianValues.length === 0) return 0; laplacianMean /= laplacianValues.length; return laplacianValues.reduce((acc, val) => acc + Math.pow(val - laplacianMean, 2), 0) / laplacianValues.length;
+        }
+
+        function getCentermostFace(detections, videoWidth, videoHeight) {
+            if (!detections || detections.length === 0) return null; if (detections.length === 1) return detections[0]; const frameCenterX = videoWidth / 2, frameCenterY = videoHeight / 2; let centermostFace = null, minDistance = Infinity; for (const detection of detections) { const faceCenterX = detection.box.x + detection.box.width / 2; const faceCenterY = detection.box.y + detection.box.height / 2; const distance = Math.sqrt(Math.pow(frameCenterX - faceCenterX, 2) + Math.pow(frameCenterY - faceCenterY, 2)); if (distance < minDistance) { minDistance = distance; centermostFace = detection; } } return centermostFace;
+        }
+
+        function renderAnalysisResultsList() {
+            resultsListPlaceholder.classList.add('hidden');
+            resultsListContainer.innerHTML = '';
+            
+            if (allAnalysisData.length === 0) {
+                resultsListPlaceholder.textContent = '저장된 분석 기록이 없습니다.';
+                resultsListPlaceholder.classList.remove('hidden');
+                paginationControls.innerHTML = '';
+                return;
+            }
+
+            const totalPages = Math.ceil(allAnalysisData.length / ITEMS_PER_PAGE);
+            currentPage = Math.min(currentPage, totalPages);
+            const startIndex = (currentPage - 1) * ITEMS_PER_PAGE;
+            const paginatedData = allAnalysisData.slice(startIndex, startIndex + ITEMS_PER_PAGE);
+
+            paginatedData.forEach((data) => {
+                const item = document.createElement('div');
+                item.className = 'result-item p-3 border-b flex justify-between items-center cursor-pointer transition-colors duration-200';
+                item.dataset.analysisId = data.id;
+                const dateString = data.timestamp ? new Date(data.timestamp.seconds * 1000).toLocaleString() : '날짜 없음';
+                const problemCount = (data.keyFrames || []).filter(kf => kf.manualOverride !== 'ok').length;
+                
+                item.innerHTML = `
+                    <div class="flex-grow overflow-hidden">
+                        <p class="font-medium text-gray-800 truncate text-sm" title="${data.fileName}">${data.fileName}</p>
+                        <p class="text-xs text-gray-500">${dateString}</p>
+                    </div>
+                    <div class="flex items-center ml-2">
+                        <div class="text-sm font-semibold ${problemCount > 0 ? 'text-red-500' : 'text-green-600'} w-28 text-right">문제 프레임: ${problemCount}개</div>
+                        <button class="delete-analysis-button ml-4 text-gray-400 hover:text-red-600 p-2 rounded-full hover:bg-red-100 transition-colors">
+                            <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" fill="currentColor" viewBox="0 0 16 16" class="pointer-events-none">
+                                <path d="M11 1.5v1h3.5a.5.5 0 0 1 0 1h-.538l-.853 10.66A2 2 0 0 1 11.115 16h-6.23a2 2 0 0 1-1.994-1.84L2.038 3.5H1.5a.5.5 0 0 1 0-1H5v-1A1.5 1.5 0 0 1 6.5 0h3A1.5 1.5 0 0 1 11 1.5m-5 0v1h4v-1a.5.5 0 0 0-.5-.5h-3a.5.5 0 0 0-.5.5M4.5 5.029l.5 8.5a.5.5 0 1 0 .998-.06l-.5-8.5a.5.5 0 1 0-.998.06m3.5.029l.5 8.5a.5.5 0 1 0 .998-.06l-.5-8.5a.5.5 0 1 0-.998.06m3.5-.029l.5 8.5a.5.5 0 1 0 .998-.06l-.5-8.5a.5.5 0 1 0-.998.06"/>
+                            </svg>
+                        </button>
+                    </div>`;
+                resultsListContainer.appendChild(item);
+            });
+
+            resultsListContainer.querySelectorAll('.result-item').forEach(item => {
+                item.addEventListener('click', (e) => {
+                    if (e.target.closest('.delete-analysis-button')) return;
+                    resultsListContainer.querySelectorAll('.result-item').forEach(r => r.classList.remove('selected'));
+                    item.classList.add('selected');
+                    const analysisId = e.currentTarget.dataset.analysisId;
+                    renderDetailedView(analysisId);
+                    detailsSection.scrollIntoView({ behavior: 'smooth' });
+                });
+            });
+            
+            resultsListContainer.querySelectorAll('.delete-analysis-button').forEach(button => {
+                button.addEventListener('click', (e) => {
+                    e.stopPropagation(); 
+                    const analysisId = e.currentTarget.closest('.result-item').dataset.analysisId;
+                    handleDeleteAnalysis(analysisId);
+                });
+            });
+
+            renderPagination(Math.ceil(allAnalysisData.length / ITEMS_PER_PAGE));
+        }
+        
+        function renderPagination(totalPages) {
+            paginationControls.innerHTML = '';
+            if (totalPages <= 1) return;
+            for (let i = 1; i <= totalPages; i++) {
+                const button = document.createElement('button');
+                button.textContent = i;
+                button.className = `px-3 py-1 rounded-md text-sm transition-colors ${i === currentPage ? 'bg-blue-600 text-white' : 'bg-gray-200 text-gray-700 hover:bg-gray-300'}`;
+                button.onclick = () => { currentPage = i; renderAnalysisResultsList(); };
+                paginationControls.appendChild(button);
+            }
+        }
+
+        async function renderDetailedView(analysisId) {
+            detailsSection.classList.remove('hidden');
+            const resultData = allAnalysisData.find(d => d.id === analysisId);
+            if (!resultData) {
+                appendLog(`Error: Could not find analysis data for ID ${analysisId}`, 'text-red-500');
+                detailsSection.classList.add('hidden');
+                return;
+            }
+            detailsTitle.textContent = `상세 분석: ${resultData.fileName}`;
+
+            if (detailChart) { detailChart.destroy(); }
+            
+            const frameScores = resultData.frameScores || [];
+            const keyFrames = resultData.keyFrames || [];
+
+            const blurryPoints = keyFrames.filter(kf => kf.manualOverride !== 'ok').map(kf => ({x: kf.time, y: frameScores.find(fs => fs.time === kf.time)?.score || 0}));
+            const okPoints = keyFrames.filter(kf => kf.manualOverride === 'ok').map(kf => ({x: kf.time, y: frameScores.find(fs => fs.time === kf.time)?.score || 0}));
+
+            detailChart = new Chart(detailChartCanvas, {
+                type: 'line',
+                data: {
+                    datasets: [
+                        { label: '선명도', data: frameScores.map(fs => ({x: fs.time, y: fs.score})), borderColor: 'rgba(59, 130, 246, 0.5)', borderWidth: 1.5, pointRadius: 0, tension: 0.4 },
+                        { label: '흐림 감지', data: blurryPoints, backgroundColor: 'rgb(239, 68, 68)', pointRadius: 5, pointHoverRadius: 7, type: 'scatter' },
+                        { label: '수동 확인 (OK)', data: okPoints, backgroundColor: 'rgb(34, 197, 94)', pointRadius: 5, pointHoverRadius: 7, type: 'scatter' }
+                    ]
+                },
+                options: {
+                    responsive: true, maintainAspectRatio: false,
+                    scales: { x: { type: 'linear', title: { display: true, text: '시간 (초)' } }, y: { title: { display: true, text: '선명도 점수' } } },
+                    plugins: { legend: { position: 'top' }, tooltip: { enabled: true } }
+                }
+            });
+
+            renderKeyFramesForDetail(resultData);
+        }
+        
+        function renderKeyFramesForDetail(resultData) {
+            keyFramesContainer.innerHTML = '';
+            const keyFrames = resultData.keyFrames || [];
+            
+            if (keyFrames.length === 0) {
+                keyFramesContainer.innerHTML = `<p class="text-gray-500 text-center py-4">이 분석에는 감지된 문제 프레임이 없습니다.</p>`;
+                return;
+            }
+
+            keyFrames.sort((a, b) => a.time - b.time).forEach(data => {
+                const isOverridden = data.manualOverride === 'ok';
+                const pairContainer = document.createElement('div');
+                pairContainer.className = 'p-4 bg-gray-50 rounded-lg shadow-inner border space-y-4';
+                pairContainer.innerHTML = `
+                    <h4 class="font-bold text-md">@ ${data.time.toFixed(2)}초</h4>
+                    <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
+                        <div class="text-center">
+                            <p class="text-xs font-semibold text-gray-700 mb-1">이전 프레임 (참고용)</p>
+                            <img src="${data.sharpUrl}" class="w-full rounded-md border bg-gray-200" loading="lazy" onerror="this.src='https://placehold.co/600x400/e2e8f0/475569?text=Image+Not+Found'">
+                        </div>
+                        <div class="text-center">
+                            <p class="text-xs font-semibold ${isOverridden ? 'text-green-600' : 'text-red-600'} mb-1">${isOverridden ? '문제 프레임 (수동OK)' : '문제 프레임'}</p>
+                            <img src="${data.blurryUrl}" class="w-full rounded-md border bg-gray-200" loading="lazy" onerror="this.src='https://placehold.co/600x400/e2e8f0/475569?text=Image+Not+Found'">
+                        </div>
+                    </div>
+                    <button data-analysis-id="${resultData.id}" data-time="${data.time}" data-action="ok" class="manual-override-button w-full px-4 py-2 bg-green-600 text-white rounded-lg hover:bg-green-700 text-sm ${isOverridden ? 'hidden' : ''}">이 프레임은 문제 없음</button>
+                    <button data-analysis-id="${resultData.id}" data-time="${data.time}" data-action="problem" class="manual-override-button w-full px-4 py-2 bg-yellow-500 text-white rounded-lg hover:bg-yellow-600 text-sm ${!isOverridden ? 'hidden' : ''}">문제 프레임으로 되돌리기</button>
+                `;
+                keyFramesContainer.appendChild(pairContainer);
+            });
+
+            keyFramesContainer.querySelectorAll('.manual-override-button').forEach(button => {
+                button.addEventListener('click', (e) => {
+                    const { analysisId, time, action } = e.currentTarget.dataset;
+                    handleManualCorrection(analysisId, parseFloat(time), action);
+                });
+            });
+        }
+
+        async function handleManualCorrection(analysisId, time, action) {
+            const docRef = doc(db, `artifacts/${appId}/users/${userId}/analyses`, analysisId);
+            const docData = allAnalysisData.find(d => d.id === analysisId);
+            if (!docData) return;
+
+            const updatedKeyFrames = docData.keyFrames.map(kf => {
+                if (kf.time === time) {
+                    return action === 'ok' ? { ...kf, manualOverride: 'ok' } : (({ manualOverride, ...rest }) => rest)(kf);
+                }
+                return kf;
+            });
+
+            try {
+                await updateDoc(docRef, { keyFrames: updatedKeyFrames });
+                appendLog(`'${docData.fileName}' 수동 보정 저장 완료.`, 'text-green-500');
+            } catch(err) {
+                appendLog(`수동 보정 저장 실패: ${err.message}`, 'text-red-500');
+                showConfirmationModal('오류', '수동 보정 저장에 실패했습니다. 다시 시도해주세요.');
+            }
+        }
+
+        async function handleDeleteAnalysis(analysisId) {
+            const docData = allAnalysisData.find(d => d.id === analysisId);
+            if (!docData) return;
+
+            const confirmed = await showConfirmationModal('삭제 확인', `'${docData.fileName}' 기록을 정말 삭제하시겠습니까? 연관된 모든 프레임 이미지도 함께 삭제됩니다.`);
+            if (!confirmed) return;
+            
+            try {
+                const keyFrames = docData.keyFrames || [];
+                const deletePromises = keyFrames.flatMap(kf => [kf.sharpUrl, kf.blurryUrl].filter(Boolean).map(url => deleteObject(ref(storage, url))));
+                await Promise.all(deletePromises);
+                appendLog(`Assets for '${docData.fileName}' deleted from Storage.`, 'text-yellow-500');
+
+                await deleteDoc(doc(db, `artifacts/${appId}/users/${userId}/analyses`, analysisId));
+                appendLog(`'${docData.fileName}' 기록이 삭제되었습니다.`, 'text-green-500');
+                
+                if (detailChartCanvas.dataset.analysisId === analysisId) {
+                    detailsSection.classList.add('hidden');
+                }
+            } catch(err) {
+                appendLog(`기록 삭제 실패: ${err.message}`, 'text-red-500');
+                console.error("Deletion error:", err);
+                showConfirmationModal('오류', '기록 삭제에 실패했습니다. 일부 파일이 남아있을 수 있습니다.');
+            }
+        }
+
+
+        // --- Main Analysis Logic ---
+        videoFilesInput.addEventListener('change', (event) => { videoFiles = Array.from(event.target.files); updateAnalyzeButtonState(); });
+        thresholdSlider.addEventListener('input', (event) => { thresholdValueEl.textContent = event.target.value; });
+        
+        analyzeButton.addEventListener('click', async () => {
+            if (videoFiles.length === 0) { 
+                showConfirmationModal('알림', '먼저 분석할 영상 파일을 선택해주세요.');
+                return;
+            }
+            loadingIndicator.style.display = 'flex';
+            analyzeButton.disabled = true;
+            
+            const threshold = parseFloat(thresholdSlider.value);
+            const analysisVideo = document.createElement('video');
+            analysisVideo.crossOrigin = 'anonymous';
+            const analysisCanvas = document.createElement('canvas');
+            const analysisCtx = analysisCanvas.getContext('2d', { willReadFrequently: true });
+            
+            for (let i = 0; i < videoFiles.length; i++) {
+                const file = videoFiles[i];
+                appendLog(`'${file.name}' 분석 시작...`, 'text-cyan-400');
+                
+                const fileURL = URL.createObjectURL(file);
+                analysisVideo.src = fileURL;
+
+                const duration = await new Promise(resolve => { analysisVideo.onloadedmetadata = () => resolve(analysisVideo.duration); });
+                
+                const frameScores = [];
+                let previousFrameState = { status: '미검출', dataURL: null };
+                const keyFramesData = [];
+                const SAMPLING_INTERVAL_SECONDS = 0.5;
+                const totalSamples = Math.floor(duration / SAMPLING_INTERVAL_SECONDS);
+                
+                for (let j = 0; j < totalSamples; j++) {
+                    const currentTime = j * SAMPLING_INTERVAL_SECONDS;
+                    progressText.textContent = `분석 중... (${i + 1}/${videoFiles.length}) - ${file.name} (${((j/totalSamples)*100).toFixed(0)}%)`;
+                    await new Promise(resolve => { analysisVideo.onseeked = () => resolve(); analysisVideo.currentTime = currentTime; });
+                    
+                    if (analysisCanvas.width !== analysisVideo.videoWidth) analysisCanvas.width = analysisVideo.videoWidth;
+                    if (analysisCanvas.height !== analysisVideo.videoHeight) analysisCanvas.height = analysisVideo.videoHeight;
+                    analysisCtx.drawImage(analysisVideo, 0, 0, analysisCanvas.width, analysisCanvas.height);
+                    
+                    const detections = await faceapi.detectAllFaces(analysisVideo, new faceapi.TinyFaceDetectorOptions({ scoreThreshold: 0.5 }));
+                    const centermostFace = getCentermostFace(detections, analysisVideo.videoWidth, analysisVideo.videoHeight);
+                    
+                    let currentStatus = '미검출';
+                    
+                    if (centermostFace) {
+                        const { x, y, width, height } = centermostFace.box;
+                        const faceImageData = analysisCtx.getImageData(x, y, width, height);
+                        const score = calculateFocusScore(faceImageData);
+                        const isBlurry = score < threshold;
+                        currentStatus = isBlurry ? '흐림' : '선명';
+                        frameScores.push({ time: currentTime, score });
+                    }
+
+                    if (currentStatus === '흐림' && (previousFrameState.status === '선명')) {
+                         keyFramesData.push({
+                            time: currentTime,
+                            sharpFrameData: previousFrameState.dataURL,
+                            blurryFrameData: analysisCanvas.toDataURL('image/jpeg', 0.8)
+                         });
+                    }
+                    
+                    previousFrameState = { 
+                        status: currentStatus, 
+                        dataURL: currentStatus === '선명' ? analysisCanvas.toDataURL('image/jpeg', 0.8) : null
+                    };
+                }
+                
+                progressText.textContent = `(${i+1}/${videoFiles.length}) '${file.name}' 에셋 업로드 중...`;
+                const uploadedKeyFrames = [];
+                for (const kf of keyFramesData) {
+                    const timestamp = Date.now();
+                    const sharpFileName = `${timestamp}_${kf.time.toFixed(2)}s_sharp.jpeg`;
+                    const blurryFileName = `${timestamp}_${kf.time.toFixed(2)}s_blurry.jpeg`;
+                    
+                    const sharpStorageRef = ref(storage, `artifacts/${appId}/users/${userId}/assets/${sharpFileName}`);
+                    const blurryStorageRef = ref(storage, `artifacts/${appId}/users/${userId}/assets/${blurryFileName}`);
+
+                    try {
+                        const [sharpUploadResult, blurryUploadResult] = await Promise.all([
+                            uploadString(sharpStorageRef, kf.sharpFrameData, 'data_url'),
+                            uploadString(blurryStorageRef, kf.blurryFrameData, 'data_url')
+                        ]);
+                        const [sharpUrl, blurryUrl] = await Promise.all([
+                            getDownloadURL(sharpUploadResult.ref),
+                            getDownloadURL(blurryUploadResult.ref)
+                        ]);
+                        uploadedKeyFrames.push({ time: kf.time, sharpUrl, blurryUrl });
+                    } catch (error) {
+                        appendLog(`에셋 업로드 실패 (시간: ${kf.time}): ${error.message}`, 'text-red-500');
+                    }
+                }
+
+                const totalScore = frameScores.reduce((sum, frame) => sum + frame.score, 0);
+                const avgScore = frameScores.length > 0 ? totalScore / frameScores.length : 0;
+                
+                const newAnalysis = {
+                    fileName: file.name, timestamp: serverTimestamp(), avgScore,
+                    problematic: uploadedKeyFrames.length > 0, frameScores, keyFrames: uploadedKeyFrames,
+                };
+
+                const analysesColPath = `artifacts/${appId}/users/${userId}/analyses`;
+                await addDoc(collection(db, analysesColPath), newAnalysis);
+                appendLog(`'${file.name}' 분석 완료 및 결과 저장.`, 'text-green-500');
+                URL.revokeObjectURL(fileURL);
+            }
+            
+            loadingIndicator.style.display = 'none';
+            analyzeButton.disabled = false;
+            videoFiles = [];
+            videoFilesInput.value = '';
+            updateAnalyzeButtonState();
+        });
+
+        window.onload = startApp;
+
+    </script>
+</body>
+</html>
