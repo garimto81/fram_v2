@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>포커스 이슈 탐지기 - Ver 0.66 (이미지 로그)</title>
+    <title>포커스 이슈 탐지기 - Ver 0.72 (탐지 로직 개선)</title>
     <script src="https://cdn.tailwindcss.com"></script>
     <link href="https://fonts.googleapis.com/css2?family=Noto+Sans+KR:wght@400;500;700&display=swap" rel="stylesheet">
     <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
@@ -139,7 +139,7 @@
         import { getFirestore, collection, addDoc, onSnapshot, doc, updateDoc, deleteDoc, serverTimestamp } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-firestore.js";
         import { getStorage, ref, uploadBytesResumable, getDownloadURL, deleteObject } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-storage.js";
 
-        const APP_VERSION = "0.66";
+        const APP_VERSION = "0.72";
         document.title = `포커스 이슈 탐지기 - Ver ${APP_VERSION}`;
         document.getElementById('version-display').textContent = `Ver ${APP_VERSION}`;
         
@@ -194,19 +194,30 @@
             logContainer.scrollTop = logContainer.scrollHeight;
         }
 
-        function appendImageLog(sharpUrl, blurryUrl, time) {
+        function appendImageLog(data) {
             const logEntry = document.createElement('div');
             logEntry.className = 'p-2 my-2 border border-gray-700 rounded-md';
+            const sharpScoreText = data.sharpScore !== null ? data.sharpScore.toFixed(2) : 'N/A';
+            const blurryScoreText = data.blurryScore !== null ? data.blurryScore.toFixed(2) : 'N/A';
+
             logEntry.innerHTML = `
-                <p class="text-sm font-semibold text-yellow-400">문제 프레임 감지 @ ${time.toFixed(2)}초</p>
-                <div class="flex gap-2 mt-1">
-                    <div class="flex-1">
-                        <p class="text-xs text-green-400 mb-1">이전 프레임</p>
-                        <img src="${sharpUrl}" class="w-full rounded">
+                <p class="text-sm font-semibold text-yellow-400">문제 프레임 감지 @ ${data.time.toFixed(2)}초</p>
+                <div class="grid grid-cols-2 gap-2 mt-1">
+                    <div>
+                        <p class="text-xs text-green-400 mb-1">이전 프레임 (전체) - 점수: ${sharpScoreText}</p>
+                        <img src="${data.sharpFull}" class="w-full rounded">
                     </div>
-                    <div class="flex-1">
-                        <p class="text-xs text-red-400 mb-1">문제 프레임</p>
-                        <img src="${blurryUrl}" class="w-full rounded">
+                    <div>
+                        <p class="text-xs text-green-400 mb-1">이전 프레임 (얼굴)</p>
+                        <img src="${data.sharpCropped || 'https://placehold.co/300x200/1f2937/4b5563?text=No+Face'}" class="w-full rounded">
+                    </div>
+                    <div>
+                        <p class="text-xs text-red-400 mb-1">문제 프레임 (전체) - 점수: ${blurryScoreText}</p>
+                        <img src="${data.blurryFull}" class="w-full rounded">
+                    </div>
+                     <div>
+                        <p class="text-xs text-red-400 mb-1">문제 프레임 (얼굴)</p>
+                        <img src="${data.blurryCropped || 'https://placehold.co/300x200/1f2937/4b5563?text=No+Face'}" class="w-full rounded">
                     </div>
                 </div>
             `;
@@ -418,6 +429,17 @@
             if (!detections || detections.length === 0) return null; if (detections.length === 1) return detections[0]; const frameCenterX = videoWidth / 2, frameCenterY = videoHeight / 2; let centermostFace = null, minDistance = Infinity; for (const detection of detections) { const faceCenterX = detection.box.x + detection.box.width / 2; const faceCenterY = detection.box.y + detection.box.height / 2; const distance = Math.sqrt(Math.pow(frameCenterX - faceCenterX, 2) + Math.pow(frameCenterY - faceCenterY, 2)); if (distance < minDistance) { minDistance = distance; centermostFace = detection; } } return centermostFace;
         }
 
+        function getCroppedFaceDataURL(canvas, box) {
+            if (!box) return null;
+            const { x, y, width, height } = box;
+            const tempCanvas = document.createElement('canvas');
+            tempCanvas.width = width;
+            tempCanvas.height = height;
+            const tempCtx = tempCanvas.getContext('2d');
+            tempCtx.drawImage(canvas, x, y, width, height, 0, 0, width, height);
+            return tempCanvas.toDataURL('image/jpeg', 0.8);
+        }
+
         function renderAnalysisResultsList() {
             resultsListPlaceholder.classList.add('hidden');
             resultsListContainer.innerHTML = '';
@@ -535,18 +557,25 @@
 
             keyFrames.sort((a, b) => a.time - b.time).forEach(data => {
                 const isOverridden = data.manualOverride === 'ok';
+                const sharpScoreText = data.sharpScore !== null && data.sharpScore !== undefined ? data.sharpScore.toFixed(2) : 'N/A';
+                const blurryScoreText = data.blurryScore !== null && data.blurryScore !== undefined ? data.blurryScore.toFixed(2) : 'N/A';
+
                 const pairContainer = document.createElement('div');
                 pairContainer.className = 'p-4 bg-gray-50 rounded-lg shadow-inner border space-y-4';
                 pairContainer.innerHTML = `
                     <h4 class="font-bold text-md">@ ${data.time.toFixed(2)}초</h4>
-                    <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
-                        <div class="text-center">
-                            <p class="text-xs font-semibold text-gray-700 mb-1">이전 프레임 (참고용)</p>
-                            <img src="${data.sharpUrl}" class="w-full rounded-md border bg-gray-200" loading="lazy" onerror="this.src='https://placehold.co/600x400/e2e8f0/475569?text=Image+Not+Found'">
+                    <div class="grid grid-cols-2 gap-4">
+                        <div>
+                            <p class="text-xs font-semibold text-green-600 mb-1">이전 프레임 (전체) - 점수: ${sharpScoreText}</p>
+                            <img src="${data.sharpFullUrl}" class="w-full rounded-md border" loading="lazy">
+                            <p class="text-xs font-semibold text-green-600 mt-2 mb-1">이전 프레임 (얼굴)</p>
+                            <img src="${data.sharpCroppedUrl || 'https://placehold.co/300x200/e2e8f0/475569?text=No+Face'}" class="w-full rounded-md border" loading="lazy">
                         </div>
-                        <div class="text-center">
-                            <p class="text-xs font-semibold ${isOverridden ? 'text-green-600' : 'text-red-600'} mb-1">${isOverridden ? '문제 프레임 (수동OK)' : '문제 프레임'}</p>
-                            <img src="${data.blurryUrl}" class="w-full rounded-md border bg-gray-200" loading="lazy" onerror="this.src='https://placehold.co/600x400/e2e8f0/475569?text=Image+Not+Found'">
+                        <div>
+                            <p class="text-xs font-semibold ${isOverridden ? 'text-green-600' : 'text-red-600'} mb-1">문제 프레임 (전체) - 점수: ${blurryScoreText}</p>
+                            <img src="${data.blurryFullUrl}" class="w-full rounded-md border" loading="lazy">
+                            <p class="text-xs font-semibold ${isOverridden ? 'text-green-600' : 'text-red-600'} mt-2 mb-1">문제 프레임 (얼굴)</p>
+                            <img src="${data.blurryCroppedUrl || 'https://placehold.co/300x200/e2e8f0/475569?text=No+Face'}" class="w-full rounded-md border" loading="lazy">
                         </div>
                     </div>
                     <button data-analysis-id="${resultData.id}" data-time="${data.time}" data-action="ok" class="manual-override-button w-full px-4 py-2 bg-green-600 text-white rounded-lg hover:bg-green-700 text-sm ${isOverridden ? 'hidden' : ''}">이 프레임은 문제 없음</button>
@@ -591,7 +620,8 @@
             
             try {
                 const keyFrames = docData.keyFrames || [];
-                const deletePromises = keyFrames.flatMap(kf => [kf.sharpUrl, kf.blurryUrl].filter(Boolean).map(url => deleteObject(ref(storage, url))));
+                const urlsToDelete = keyFrames.flatMap(kf => [kf.sharpFullUrl, kf.sharpCroppedUrl, kf.blurryFullUrl, kf.blurryCroppedUrl]).filter(Boolean);
+                const deletePromises = urlsToDelete.map(url => deleteObject(ref(storage, url)));
                 await Promise.all(deletePromises);
 
                 await deleteDoc(doc(db, `artifacts/${appId}/users/${userId}/analyses`, analysisId));
@@ -617,9 +647,7 @@
 
         async function uploadWithProgress(storageRef, blob, signal) {
             return new Promise((resolve, reject) => {
-                if (!blob) {
-                    return reject(new Error("업로드할 데이터가 없습니다. (null blob)"));
-                }
+                if (!blob) return reject(new Error("업로드할 데이터가 없습니다. (null blob)"));
                 
                 const uploadTask = uploadBytesResumable(storageRef, blob);
 
@@ -654,7 +682,6 @@
             analysisController = new AbortController();
             const signal = analysisController.signal;
 
-            // Helper to give the main thread a break
             const yieldToMain = () => new Promise(resolve => setTimeout(resolve, 0));
 
             try {
@@ -668,7 +695,6 @@
                     if (signal.aborted) throw new Error("분석이 중단되었습니다.");
                     
                     const file = videoFiles[i];
-                    appendLog(`[파일 ${i+1}/${videoFiles.length}] '${file.name}' 분석 시작...`, 'text-cyan-400');
                     
                     const fileURL = URL.createObjectURL(file);
                     analysisVideo.src = fileURL;
@@ -678,15 +704,13 @@
                     });
                     
                     const frameScores = [];
-                    let previousFrameState = { status: '미검출', dataURL: null };
+                    let previousFrameState = { status: '미검출', fullFrameData: null, croppedFaceData: null, detectionBox: null, score: null };
                     const keyFramesData = [];
                     const SAMPLING_INTERVAL_SECONDS = 0.5;
                     const totalSamples = Math.floor(duration / SAMPLING_INTERVAL_SECONDS);
                     
                     for (let j = 0; j < totalSamples; j++) {
-                        // Check for cancellation before starting each frame's work
                         if (signal.aborted) throw new Error("분석이 중단되었습니다.");
-                        
                         progressText.textContent = `프레임 분석 중... (${i + 1}/${videoFiles.length}) - ${j + 1}/${totalSamples}`;
                         
                         const currentTime = j * SAMPLING_INTERVAL_SECONDS;
@@ -703,26 +727,45 @@
                         const centermostFace = getCentermostFace(detections, analysisVideo.videoWidth, analysisVideo.videoHeight);
                         
                         let currentStatus = '미검출';
+                        let currentCroppedFace = null;
+                        let currentDetectionBox = null;
+                        let currentScore = null;
+
                         if (centermostFace) {
                             const { x, y, width, height } = centermostFace.box;
                             const faceImageData = analysisCtx.getImageData(x, y, width, height);
-                            const score = calculateFocusScore(faceImageData);
-                            currentStatus = score < threshold ? '흐림' : '선명';
-                            frameScores.push({ time: currentTime, score });
+                            currentScore = calculateFocusScore(faceImageData);
+                            currentStatus = currentScore < threshold ? '흐림' : '선명';
+                            frameScores.push({ time: currentTime, score: currentScore });
+                            currentCroppedFace = getCroppedFaceDataURL(analysisCanvas, centermostFace.box);
+                            currentDetectionBox = centermostFace.box;
                         }
 
-                        if (currentStatus === '흐림' && previousFrameState.status === '선명') {
-                             appendImageLog(previousFrameState.dataURL, analysisCanvas.toDataURL('image/jpeg', 0.8), currentTime);
-                             keyFramesData.push({
+                        if (currentStatus === '흐림' && (previousFrameState.status === '선명' || previousFrameState.status === '미검출')) {
+                             const blurryFullFrame = analysisCanvas.toDataURL('image/jpeg', 0.8);
+                             const data = {
                                 time: currentTime,
-                                sharpFrameData: previousFrameState.dataURL,
-                                blurryFrameData: analysisCanvas.toDataURL('image/jpeg', 0.8)
-                             });
+                                sharpFull: previousFrameState.fullFrameData,
+                                sharpCropped: previousFrameState.croppedFaceData,
+                                sharpBox: previousFrameState.detectionBox,
+                                sharpScore: previousFrameState.score,
+                                blurryFull: blurryFullFrame,
+                                blurryCropped: currentCroppedFace,
+                                blurryBox: currentDetectionBox,
+                                blurryScore: currentScore
+                             };
+                             appendImageLog(data);
+                             keyFramesData.push(data);
                         }
                         
-                        previousFrameState = { status: currentStatus, dataURL: currentStatus === '선명' ? analysisCanvas.toDataURL('image/jpeg', 0.8) : null };
+                        previousFrameState = { 
+                            status: currentStatus, 
+                            fullFrameData: analysisCanvas.toDataURL('image/jpeg', 0.8),
+                            croppedFaceData: currentCroppedFace,
+                            detectionBox: currentDetectionBox,
+                            score: currentScore
+                        };
                         
-                        // *** YIELD TO MAIN THREAD TO PREVENT BLOCKING ***
                         await yieldToMain();
                     }
                     
@@ -735,19 +778,31 @@
                             
                             const kf = keyFramesData[k];
                             const timestamp = Date.now();
-
                             progressText.textContent = `에셋 업로드 중... (${k + 1}/${totalKeyFrames})`;
                             
-                            const sharpBlob = dataURLtoBlob(kf.sharpFrameData);
-                            const blurryBlob = dataURLtoBlob(kf.blurryFrameData);
+                            const sharpFullBlob = dataURLtoBlob(kf.sharpFull);
+                            const sharpCroppedBlob = dataURLtoBlob(kf.sharpCropped);
+                            const blurryFullBlob = dataURLtoBlob(kf.blurryFull);
+                            const blurryCroppedBlob = dataURLtoBlob(kf.blurryCropped);
 
-                            const sharpRef = ref(storage, `artifacts/${appId}/users/${userId}/assets/${timestamp}_sharp.jpeg`);
-                            const blurryRef = ref(storage, `artifacts/${appId}/users/${userId}/assets/${timestamp}_blurry.jpeg`);
+                            const sharpFullRef = ref(storage, `artifacts/${appId}/users/${userId}/assets/${timestamp}_sharp_full.jpeg`);
+                            const sharpCroppedRef = ref(storage, `artifacts/${appId}/users/${userId}/assets/${timestamp}_sharp_crop.jpeg`);
+                            const blurryFullRef = ref(storage, `artifacts/${appId}/users/${userId}/assets/${timestamp}_blurry_full.jpeg`);
+                            const blurryCroppedRef = ref(storage, `artifacts/${appId}/users/${userId}/assets/${timestamp}_blurry_crop.jpeg`);
 
-                            const sharpUrl = await uploadWithProgress(sharpRef, sharpBlob, signal);
-                            const blurryUrl = await uploadWithProgress(blurryRef, blurryBlob, signal);
+                            const [sharpFullUrl, sharpCroppedUrl, blurryFullUrl, blurryCroppedUrl] = await Promise.all([
+                                uploadWithProgress(sharpFullRef, sharpFullBlob, signal),
+                                uploadWithProgress(sharpCroppedRef, sharpCroppedBlob, signal),
+                                uploadWithProgress(blurryFullRef, blurryFullBlob, signal),
+                                uploadWithProgress(blurryCroppedRef, blurryCroppedBlob, signal)
+                            ]);
                             
-                            uploadedKeyFrames.push({ time: kf.time, sharpUrl, blurryUrl });
+                            uploadedKeyFrames.push({ 
+                                time: kf.time, 
+                                sharpFullUrl, sharpCroppedUrl, blurryFullUrl, blurryCroppedUrl, 
+                                sharpBox: kf.sharpBox, blurryBox: kf.blurryBox,
+                                sharpScore: kf.sharpScore, blurryScore: kf.blurryScore
+                            });
                         }
                     }
 
