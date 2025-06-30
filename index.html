@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>포커스 이슈 탐지기 - Ver 0.78 (연결 및 데이터 수정)</title>
+    <title>포커스 이슈 탐지기 - Ver 0.79 (UI 개선)</title>
     <script src="https://cdn.tailwindcss.com"></script>
     <link href="https://fonts.googleapis.com/css2?family=Noto+Sans+KR:wght@400;500;700&display=swap" rel="stylesheet">
     <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
@@ -115,7 +115,7 @@
             <!-- Log Container -->
             <div class="bg-white p-6 rounded-2xl shadow-lg">
                 <h2 class="text-xl font-semibold mb-4 border-b pb-2">실시간 분석 로그</h2>
-                <div id="log-container" class="h-96 overflow-y-auto bg-gray-900 text-white font-mono rounded-lg p-4 border text-sm"><p id="log-placeholder" class="text-gray-400 text-center py-4">분석을 시작하거나 과거 기록을 선택하면 로그가 표시됩니다.</p></div>
+                <div id="log-container" class="min-h-[10rem] max-h-[40rem] overflow-y-auto bg-gray-900 text-white font-mono rounded-lg p-4 border text-sm"><p id="log-placeholder" class="text-gray-400 text-center py-4">분석을 시작하거나 과거 기록을 선택하면 로그가 표시됩니다.</p></div>
             </div>
         </main>
     </div>
@@ -139,7 +139,7 @@
         import { getFirestore, collection, addDoc, onSnapshot, doc, updateDoc, deleteDoc, serverTimestamp } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-firestore.js";
         import { getStorage, ref, uploadBytesResumable, getDownloadURL, deleteObject } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-storage.js";
 
-        const APP_VERSION = "0.78";
+        const APP_VERSION = "0.79";
         document.title = `포커스 이슈 탐지기 - Ver ${APP_VERSION}`;
         document.getElementById('version-display').textContent = `Ver ${APP_VERSION}`;
         
@@ -515,6 +515,22 @@
             }
         }
 
+        function highlightKeyFrame(time) {
+            removeKeyFrameHighlight(); 
+            const targetElement = document.querySelector(`#key-frames-container > div[data-time="${time}"]`);
+            if (targetElement) {
+                targetElement.classList.add('ring-2', 'ring-blue-500', 'ring-offset-2');
+                targetElement.scrollIntoView({ behavior: 'smooth', block: 'center' });
+            }
+        }
+
+        function removeKeyFrameHighlight() {
+            const highlighted = document.querySelector('.ring-2');
+            if (highlighted) {
+                highlighted.classList.remove('ring-2', 'ring-blue-500', 'ring-offset-2');
+            }
+        }
+
         async function renderDetailedView(analysisId) {
             detailsSection.classList.remove('hidden');
             const resultData = allAnalysisData.find(d => d.id === analysisId);
@@ -541,7 +557,24 @@
                 options: {
                     responsive: true, maintainAspectRatio: false,
                     scales: { x: { type: 'linear', title: { display: true, text: '시간 (초)' } }, y: { title: { display: true, text: '선명도 점수' } } },
-                    plugins: { legend: { position: 'top' }, tooltip: { enabled: true } }
+                    plugins: { legend: { position: 'top' }, tooltip: { enabled: true } },
+                    onHover: (event, chartElement) => {
+                        const canvas = detailChartCanvas;
+                        canvas.style.cursor = 'default';
+                        removeKeyFrameHighlight();
+
+                        if (chartElement.length > 0) {
+                            const element = chartElement[0];
+                            const datasetIndex = element.datasetIndex;
+                            const index = element.index;
+                            
+                            if (datasetIndex === 1 || datasetIndex === 2) {
+                                canvas.style.cursor = 'pointer';
+                                const timeValue = detailChart.data.datasets[datasetIndex].data[index].x;
+                                highlightKeyFrame(timeValue);
+                            }
+                        }
+                    },
                 }
             });
 
@@ -563,7 +596,9 @@
                 const blurryScoreText = data.blurryScore !== null && data.blurryScore !== undefined ? data.blurryScore.toFixed(2) : 'N/A';
 
                 const pairContainer = document.createElement('div');
-                pairContainer.className = 'p-4 bg-gray-50 rounded-lg shadow-inner border space-y-4';
+                pairContainer.className = 'p-4 bg-gray-50 rounded-lg shadow-inner border space-y-4 transition-all duration-300';
+                pairContainer.dataset.time = data.time;
+
                 pairContainer.innerHTML = `
                     <h4 class="font-bold text-md">@ ${data.time.toFixed(2)}초</h4>
                     <div class="grid grid-cols-2 gap-4">
@@ -709,14 +744,6 @@
             const yieldToMain = () => new Promise(resolve => setTimeout(resolve, 0));
 
             try {
-                // Diagnostic Log
-                appendLog(`[진단] 분석 시작 시점의 Path Identifier: ${pathIdentifier}`, 'text-blue-300');
-                appendLog(`[진단] 분석 시작 시점의 User ID: ${userId}`, 'text-blue-300');
-                if (!isAuthReady || !userId) {
-                    appendLog('오류: 인증 상태가 준비되지 않았습니다. 업로드가 실패할 수 있습니다.', 'text-red-500');
-                    throw new Error("인증 실패");
-                }
-
                 const threshold = parseFloat(thresholdSlider.value);
                 const analysisVideo = document.createElement('video');
                 analysisVideo.crossOrigin = 'anonymous';
