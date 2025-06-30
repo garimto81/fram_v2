@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>포커스 이슈 탐지기 - Ver 0.76 (업로드 인증 진단)</title>
+    <title>포커스 이슈 탐지기 - Ver 0.77 (연결 진단)</title>
     <script src="https://cdn.tailwindcss.com"></script>
     <link href="https://fonts.googleapis.com/css2?family=Noto+Sans+KR:wght@400;500;700&display=swap" rel="stylesheet">
     <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
@@ -139,7 +139,7 @@
         import { getFirestore, collection, addDoc, onSnapshot, doc, updateDoc, deleteDoc, serverTimestamp } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-firestore.js";
         import { getStorage, ref, uploadBytesResumable, getDownloadURL, deleteObject } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-storage.js";
 
-        const APP_VERSION = "0.75";
+        const APP_VERSION = "0.76";
         document.title = `포커스 이슈 탐지기 - Ver ${APP_VERSION}`;
         document.getElementById('version-display').textContent = `Ver ${APP_VERSION}`;
         
@@ -182,7 +182,7 @@
         let userId = null;
         let isAuthReady = false;
         let unsubscribeFromAnalyses = null;
-        const appId = typeof __app_id !== 'undefined' ? __app_id : 'default-app-id';
+        let appId = typeof __app_id !== 'undefined' ? __app_id : 'default-app-id';
 
         // --- UI & Log Functions ---
         function appendLog(message, colorClass = 'text-gray-400') {
@@ -707,6 +707,14 @@
             const yieldToMain = () => new Promise(resolve => setTimeout(resolve, 0));
 
             try {
+                // Diagnostic Log
+                appendLog(`[진단] 분석 시작 시점의 App ID: ${appId}`, 'text-blue-300');
+                appendLog(`[진단] 분석 시작 시점의 User ID: ${userId}`, 'text-blue-300');
+                if (!isAuthReady || !userId) {
+                    appendLog('오류: 인증 상태가 준비되지 않았습니다. 업로드가 실패할 수 있습니다.', 'text-red-500');
+                    throw new Error("인증 실패");
+                }
+
                 const threshold = parseFloat(thresholdSlider.value);
                 const analysisVideo = document.createElement('video');
                 analysisVideo.crossOrigin = 'anonymous';
@@ -800,23 +808,29 @@
                             
                             const kf = keyFramesData[k];
                             const timestamp = Date.now();
-                            progressText.textContent = `에셋 업로드 중... (${k + 1}/${totalKeyFrames})`;
                             
-                            const sharpFullBlob = dataURLtoBlob(kf.sharpFull);
-                            const sharpCroppedBlob = dataURLtoBlob(kf.sharpCropped);
-                            const blurryFullBlob = dataURLtoBlob(kf.blurryFull);
-                            const blurryCroppedBlob = dataURLtoBlob(kf.blurryCropped);
+                            const blobs = {
+                                sharpFull: dataURLtoBlob(kf.sharpFull),
+                                sharpCropped: dataURLtoBlob(kf.sharpCropped),
+                                blurryFull: dataURLtoBlob(kf.blurryFull),
+                                blurryCropped: dataURLtoBlob(kf.blurryCropped)
+                            };
 
-                            const sharpFullRef = ref(storage, `artifacts/${appId}/users/${userId}/assets/${timestamp}_sharp_full.jpeg`);
-                            const sharpCroppedRef = ref(storage, `artifacts/${appId}/users/${userId}/assets/${timestamp}_sharp_crop.jpeg`);
-                            const blurryFullRef = ref(storage, `artifacts/${appId}/users/${userId}/assets/${timestamp}_blurry_full.jpeg`);
-                            const blurryCroppedRef = ref(storage, `artifacts/${appId}/users/${userId}/assets/${timestamp}_blurry_crop.jpeg`);
+                            const refs = {
+                                sharpFull: ref(storage, `artifacts/${appId}/users/${userId}/assets/${timestamp}_sharp_full.jpeg`),
+                                sharpCropped: ref(storage, `artifacts/${appId}/users/${userId}/assets/${timestamp}_sharp_crop.jpeg`),
+                                blurryFull: ref(storage, `artifacts/${appId}/users/${userId}/assets/${timestamp}_blurry_full.jpeg`),
+                                blurryCropped: ref(storage, `artifacts/${appId}/users/${userId}/assets/${timestamp}_blurry_crop.jpeg`)
+                            };
 
-                            // Sequential upload for diagnosis
-                            const sharpFullUrl = await uploadWithProgress(sharpFullRef, sharpFullBlob, signal);
-                            const sharpCroppedUrl = await uploadWithProgress(sharpCroppedRef, sharpCroppedBlob, signal);
-                            const blurryFullUrl = await uploadWithProgress(blurryFullRef, blurryFullBlob, signal);
-                            const blurryCroppedUrl = await uploadWithProgress(blurryCroppedRef, blurryCroppedBlob, signal);
+                            progressText.textContent = `에셋 업로드 중... (${k * 4 + 1}/${totalKeyFrames * 4})`;
+                            const sharpFullUrl = await uploadWithProgress(refs.sharpFull, blobs.sharpFull, signal);
+                            progressText.textContent = `에셋 업로드 중... (${k * 4 + 2}/${totalKeyFrames * 4})`;
+                            const sharpCroppedUrl = await uploadWithProgress(refs.sharpCropped, blobs.sharpCropped, signal);
+                            progressText.textContent = `에셋 업로드 중... (${k * 4 + 3}/${totalKeyFrames * 4})`;
+                            const blurryFullUrl = await uploadWithProgress(refs.blurryFull, blobs.blurryFull, signal);
+                            progressText.textContent = `에셋 업로드 중... (${k * 4 + 4}/${totalKeyFrames * 4})`;
+                            const blurryCroppedUrl = await uploadWithProgress(refs.blurryCropped, blobs.blurryCropped, signal);
                             
                             uploadedKeyFrames.push({ 
                                 time: kf.time, 
