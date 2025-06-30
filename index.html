@@ -246,11 +246,15 @@
             app = initializeApp(config);
             auth = getAuth(app);
             db = getFirestore(app);
-            storage = getStorage(app);
+            // ▼▼▼ 이 부분을 수정합니다 ▼▼▼
+            storage = getStorage(app, "gs://여기에-새로-만든-버킷-이름을-입력"); 
+            // 예: storage = getStorage(app, "gs://analyze-frame-focus-asia-bucket");
+            // ▲▲▲ 이 부분을 수정합니다 ▲▲▲
             appendLog('Firebase 서비스 가져오기 완료.', 'text-cyan-400');
 
             setupAuthListener();
         }
+
 
         async function startApp() {
             const savedConfig = localStorage.getItem('firebaseCustomConfig');
