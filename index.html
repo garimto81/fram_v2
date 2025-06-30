@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>포커스 이슈 탐지기 - Ver 0.72 (탐지 로직 개선)</title>
+    <title>포커스 이슈 탐지기 - Ver 0.74 (버그 수정)</title>
     <script src="https://cdn.tailwindcss.com"></script>
     <link href="https://fonts.googleapis.com/css2?family=Noto+Sans+KR:wght@400;500;700&display=swap" rel="stylesheet">
     <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
@@ -62,8 +62,8 @@
                      <div class="space-y-2">
                         <label for="threshold-slider" class="block text-sm font-medium text-gray-700">흐림 기준값 (낮을수록 민감)</label>
                         <div class="flex items-center gap-2">
-                            <input type="range" id="threshold-slider" min="0" max="200" value="50" class="w-full h-2 bg-gray-200 rounded-lg appearance-none cursor-pointer">
-                            <span id="threshold-value" class="font-bold text-lg text-blue-600 w-12 text-center">50</span>
+                            <input type="range" id="threshold-slider" min="0" max="200" value="30" class="w-full h-2 bg-gray-200 rounded-lg appearance-none cursor-pointer">
+                            <span id="threshold-value" contenteditable="true" class="font-bold text-lg text-blue-600 w-16 text-center cursor-text focus:outline-none focus:ring-2 focus:ring-blue-500 rounded-md px-1">30</span>
                         </div>
                     </div>
                 </div>
@@ -139,7 +139,7 @@
         import { getFirestore, collection, addDoc, onSnapshot, doc, updateDoc, deleteDoc, serverTimestamp } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-firestore.js";
         import { getStorage, ref, uploadBytesResumable, getDownloadURL, deleteObject } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-storage.js";
 
-        const APP_VERSION = "0.72";
+        const APP_VERSION = "0.74";
         document.title = `포커스 이슈 탐지기 - Ver ${APP_VERSION}`;
         document.getElementById('version-display').textContent = `Ver ${APP_VERSION}`;
         
@@ -383,7 +383,7 @@
         }
 
         saveConfigBtn.addEventListener('click', () => {
-            const configText = configInput.value;
+            const configText = firebaseConfigInput.value;
             if (!configText) {
                 showConfirmationModal('오류', 'Firebase 구성(JSON)을 입력해주세요.');
                 return;
@@ -636,7 +636,27 @@
 
         // --- Main Analysis Logic ---
         videoFilesInput.addEventListener('change', (event) => { videoFiles = Array.from(event.target.files); updateAnalyzeButtonState(); });
-        thresholdSlider.addEventListener('input', (event) => { thresholdValueEl.textContent = event.target.value; });
+        
+        thresholdValueEl.addEventListener('keydown', (event) => {
+            if (event.key === 'Enter') {
+                event.preventDefault();
+                event.target.blur();
+            }
+        });
+
+        thresholdValueEl.addEventListener('blur', (event) => {
+            let value = parseInt(event.target.textContent, 10);
+            if (isNaN(value)) value = 30;
+            const min = parseInt(thresholdSlider.min, 10);
+            const max = parseInt(thresholdSlider.max, 10);
+            value = Math.max(min, Math.min(max, value));
+            event.target.textContent = value;
+            thresholdSlider.value = value;
+        });
+
+        thresholdSlider.addEventListener('input', (event) => {
+            thresholdValueEl.textContent = event.target.value;
+        });
         
         cancelUploadBtn.addEventListener('click', () => {
             if (analysisController) {
