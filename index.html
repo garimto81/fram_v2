@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>포커스 이슈 탐지기 - Ver 0.63 (비동기 루프 진단)</title>
+    <title>포커스 이슈 탐지기 - Ver 0.64 (반응형 중단)</title>
     <script src="https://cdn.tailwindcss.com"></script>
     <link href="https://fonts.googleapis.com/css2?family=Noto+Sans+KR:wght@400;500;700&display=swap" rel="stylesheet">
     <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
@@ -601,32 +601,25 @@
                     return reject(new Error("업로드할 데이터가 없습니다. (null blob)"));
                 }
                 
-                appendLog(`  - 업로드 작업 생성: ${storageRef.name}`, 'text-gray-500');
                 const uploadTask = uploadBytesResumable(storageRef, blob);
 
                 const unsubscribe = uploadTask.on('state_changed', 
                     (snapshot) => {
                         const progress = (snapshot.bytesTransferred / snapshot.totalBytes) * 100;
                         uploadProgressBar.style.width = `${progress}%`;
-                        appendLog(`  - 업로드 진행: ${Math.round(progress)}%`, 'text-gray-500');
                     }, 
                     (error) => {
                         unsubscribe();
-                        appendLog(`  - 업로드 이벤트 오류: ${error.code}`, 'text-red-500');
                         reject(error);
                     }, 
                     async () => {
                         unsubscribe();
-                        appendLog(`  - 업로드 이벤트 완료.`, 'text-green-500');
                         const downloadURL = await getDownloadURL(uploadTask.snapshot.ref);
                         resolve(downloadURL);
                     }
                 );
                 
-                appendLog(`  - 이벤트 리스너 설정 완료. 서버 응답 대기 중...`, 'text-gray-500');
-                
                 signal.addEventListener('abort', () => {
-                    appendLog(`  - 중단 신호 감지. 업로드 작업을 취소합니다.`, 'text-yellow-500');
                     unsubscribe();
                     uploadTask.cancel();
                 });
@@ -671,6 +664,7 @@
                     const totalSamples = Math.floor(duration / SAMPLING_INTERVAL_SECONDS);
                     
                     for (let j = 0; j < totalSamples; j++) {
+                        // Check for cancellation before starting each frame's work
                         if (signal.aborted) throw new Error("분석이 중단되었습니다.");
                         
                         progressText.textContent = `프레임 분석 중... (${i + 1}/${videoFiles.length}) - ${j + 1}/${totalSamples}`;
@@ -749,7 +743,7 @@
                     URL.revokeObjectURL(fileURL);
                 }
             } catch (error) {
-                if (error.code === 'storage/canceled' || (error.message && error.message.includes('canceled'))) {
+                if (error.code === 'storage/canceled' || (error.message && (error.message.includes('canceled') || error.message.includes('중단')))) {
                     appendLog(`분석/업로드 중단됨: 사용자가 취소했습니다.`, 'text-yellow-500');
                 } else {
                     appendLog(`분석 중 오류 발생: ${error.message}`, 'text-red-500');
