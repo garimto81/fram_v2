@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>포커스 이슈 탐지기 Ver 0.91</title>
+    <title>포커스 이슈 탐지기 - Ver 0.92 (초기화 진단)</title>
     <script src="https://cdn.tailwindcss.com"></script>
     <link href="https://fonts.googleapis.com/css2?family=Noto+Sans+KR:wght@400;500;700&display=swap" rel="stylesheet">
     <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
@@ -121,7 +121,7 @@
         import { getFirestore, collection, addDoc, onSnapshot, doc, updateDoc, deleteDoc, serverTimestamp } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-firestore.js";
         import { getStorage, ref, uploadBytesResumable, getDownloadURL, deleteObject } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-storage.js";
 
-        const APP_VERSION = "0.84";
+        const APP_VERSION = "0.92";
         document.title = `포커스 이슈 탐지기 - Ver ${APP_VERSION}`;
         document.getElementById('version-display').textContent = `Ver ${APP_VERSION}`;
         
@@ -230,6 +230,7 @@
 
         // --- Initialization & Firebase Connection Management ---
         async function startApp() {
+            appendLog('앱 시작...', 'text-white');
             const firebaseConfig = {
                 apiKey: "AIzaSyAyTh3kG9pPcgqcs-MHXSBKFgY_gnRWae0",
                 authDomain: "analyze-frame-focus.firebaseapp.com",
@@ -241,6 +242,7 @@
             };
             
             try {
+                appendLog('Firebase 초기화 시도...', 'text-cyan-400');
                 app = initializeApp(firebaseConfig);
                 auth = getAuth(app);
                 db = getFirestore(app);
@@ -250,19 +252,22 @@
                 connectionStatus.className = 'text-sm text-green-600 mt-1';
                 appendLog(`Firebase 연결 성공 (Project: ${firebaseConfig.projectId})`, 'text-green-500');
 
+                appendLog('인증 상태 리스너 설정...', 'text-cyan-400');
                 onAuthStateChanged(auth, async (user) => {
                     if (user) {
-                        appendLog(`인증 완료 (UID: ${user.uid})`, 'text-green-500');
+                        appendLog(`인증 상태 변경 감지: 로그인됨 (UID: ${user.uid})`, 'text-green-500');
                         listenForDataChanges();
                     } else {
+                        appendLog('인증 상태 변경 감지: 로그아웃됨. 익명 로그인 시도...', 'text-yellow-400');
                         await signInAnonymously(auth);
+                        appendLog('익명 로그인 요청 완료.', 'text-yellow-400');
                     }
                 });
 
             } catch (e) {
                 connectionStatus.textContent = '오류: Firebase 초기화 실패.';
                 connectionStatus.className = 'text-sm text-red-600 mt-1';
-                appendLog(`Firebase 초기화 오류: ${e.message}`, 'text-red-500');
+                appendLog(`Firebase 초기화 오류: ${e.message}\n${e.stack}`, 'text-red-500');
                 analyzeButton.disabled = true;
             }
 
@@ -271,15 +276,17 @@
         
         async function loadFaceApiModels() {
             if (modelsLoaded) return;
+            appendLog('얼굴 인식 모델 로딩 시작...', 'text-cyan-400');
             try {
                 await faceapi.nets.tinyFaceDetector.loadFromUri(MODEL_URL);
                 modelsLoaded = true;
                 modelStatus.textContent = '얼굴 인식 모델 로딩 완료!';
                 modelStatus.className = 'text-sm text-green-600 mt-1';
+                appendLog('얼굴 인식 모델 로딩 성공.', 'text-green-500');
                 updateAnalyzeButtonState();
             } catch (error) {
                 modelStatus.textContent = '모델 로딩 실패';
-                appendLog(`모델 로딩 실패: ${error.message}`, 'text-red-500');
+                appendLog(`모델 로딩 실패: ${error.message}\n${error.stack}`, 'text-red-500');
             }
         }
         
@@ -287,7 +294,9 @@
             if (unsubscribeFromAnalyses) unsubscribeFromAnalyses();
 
             const analysesColPath = `public_data/shared_documents/analyses`;
+            appendLog(`DB 리스너 설정 시도: ${analysesColPath}`, 'text-cyan-400');
             unsubscribeFromAnalyses = onSnapshot(collection(db, analysesColPath), (snapshot) => {
+                appendLog(`DB 데이터 수신 성공. ${snapshot.size}개 기록 발견.`, 'text-green-500');
                 allAnalysisData = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
                 allAnalysisData.sort((a, b) => (b.timestamp?.seconds ?? 0) - (a.timestamp?.seconds ?? 0));
                 renderAnalysisResultsList();
