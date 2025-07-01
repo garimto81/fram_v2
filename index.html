@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>포커스 이슈 탐지기 - Ver 0.84 (최종 안정화)</title>
+    <title>포커스 이슈 탐지기 - Ver 0.85</title>
     <script src="https://cdn.tailwindcss.com"></script>
     <link href="https://fonts.googleapis.com/css2?family=Noto+Sans+KR:wght@400;500;700&display=swap" rel="stylesheet">
     <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
@@ -15,8 +15,6 @@
         .result-item:hover { background-color: #f0f9ff; }
         .result-item.selected { background-color: #dbeafe; }
         #custom-modal-overlay { background-color: rgba(0, 0, 0, 0.5); }
-        details > summary { list-style: none; }
-        details > summary::-webkit-details-marker { display: none; }
     </style>
 </head>
 <body class="bg-gray-100 text-gray-800">
@@ -32,26 +30,7 @@
         </header>
         
         <main class="space-y-8">
-            <!-- 0. Firebase Config Section -->
-            <div class="bg-white p-6 rounded-2xl shadow-lg">
-                <details>
-                    <summary class="cursor-pointer text-lg font-semibold text-gray-700 hover:text-blue-600 transition-colors">
-                        <span class="arrow inline-block transition-transform duration-200">▶</span> Firebase 연결 설정 (선택 사항)
-                    </summary>
-                    <div class="mt-4 border-t pt-4 space-y-4">
-                        <p class="text-sm text-gray-600">
-                            별도의 Firebase 프로젝트를 사용하려면, Firebase 콘솔에서 '프로젝트 설정' > '일반' 탭 하단의 '내 앱' 섹션에서 '구성' 객체(JSON)를 복사하여 아래에 붙여넣으세요.
-                        </p>
-                        <textarea id="firebase-config-input" rows="8" class="w-full p-2 border rounded-md font-mono text-sm" placeholder="const firebaseConfig = { ... };"></textarea>
-                        <div class="flex flex-col sm:flex-row gap-2">
-                            <button id="save-config-btn" class="flex-1 bg-blue-600 text-white font-bold py-2 px-4 rounded-full hover:bg-blue-700 transition">저장 및 다시 연결</button>
-                            <button id="revert-config-btn" class="flex-1 bg-gray-500 text-white font-bold py-2 px-4 rounded-full hover:bg-gray-600 transition">기본 연결로 복원</button>
-                        </div>
-                    </div>
-                </details>
-            </div>
-
-            <!-- 1. Control Panel -->
+            <!-- Control Panel -->
             <div class="bg-white p-6 rounded-2xl shadow-lg">
                 <h2 class="text-xl font-semibold mb-4 border-b pb-2">1. 제어 패널</h2>
                 <div class="grid grid-cols-1 md:grid-cols-2 gap-6 items-center">
@@ -86,7 +65,7 @@
                 </div>
             </div>
 
-            <!-- 2. Analysis History -->
+            <!-- Analysis History -->
             <div class="bg-white p-6 rounded-2xl shadow-lg">
                  <h2 class="text-xl font-semibold mb-4 border-b pb-2">2. 분석 기록</h2>
                  <div id="results-list-container" class="space-y-1">
@@ -95,7 +74,7 @@
                  <div id="pagination-controls" class="pt-4 mt-4 border-t flex justify-center gap-2"></div>
             </div>
 
-            <!-- 3 & 4. Details Section -->
+            <!-- Details Section -->
             <div id="details-section" class="hidden space-y-8">
                 <div class="bg-white p-6 rounded-2xl shadow-lg">
                       <h2 id="details-title" class="text-xl font-semibold mb-4 border-b pb-2 flex justify-between items-center">
@@ -137,7 +116,7 @@
 
     <script type="module">
         // Firebase 11.x SDK
-        import { initializeApp, deleteApp } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-app.js";
+        import { initializeApp } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-app.js";
         import { getAuth, signInAnonymously, onAuthStateChanged } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-auth.js";
         import { getFirestore, collection, addDoc, onSnapshot, doc, updateDoc, deleteDoc, serverTimestamp } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-firestore.js";
         import { getStorage, ref, uploadBytesResumable, getDownloadURL, deleteObject } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-storage.js";
@@ -149,9 +128,6 @@
         // --- DOM References ---
         const connectionStatus = document.getElementById('connection-status');
         const modelStatus = document.getElementById('model-status');
-        const firebaseConfigInput = document.getElementById('firebase-config-input');
-        const saveConfigBtn = document.getElementById('save-config-btn');
-        const revertConfigBtn = document.getElementById('revert-config-btn');
         const videoFilesInput = document.getElementById('video-files-input');
         const thresholdSlider = document.getElementById('threshold-slider');
         const thresholdValueEl = document.getElementById('threshold-value');
@@ -183,10 +159,7 @@
 
         // --- Firebase State ---
         let app, auth, db, storage;
-        let userId = null;
-        let isAuthReady = false;
         let unsubscribeFromAnalyses = null;
-        let pathIdentifier = typeof __app_id !== 'undefined' ? __app_id : 'default-app-id';
 
         // --- UI & Log Functions ---
         function appendLog(message, colorClass = 'text-gray-400') {
@@ -256,75 +229,38 @@
         modalOverlay.addEventListener('click', (e) => { if (e.target === modalOverlay) closeModal(false); });
 
         // --- Initialization & Firebase Connection Management ---
-        function parseFirebaseConfig(configText) {
-            const match = configText.match(/const\s+firebaseConfig\s*=\s*(\{[\s\S]*?\});/);
-            if (match && match[1]) {
-                const objectString = match[1];
-                return (new Function(`return ${objectString}`))();
-            }
-            return JSON.parse(configText);
-        }
-
-        async function initializeFirebase(config) {
-            appendLog(`Firebase 초기화 시도 중 (Project: ${config.projectId})...`, 'text-cyan-400');
-            if (app) {
-                if (unsubscribeFromAnalyses) unsubscribeFromAnalyses();
-                await deleteApp(app).catch(e => console.warn("Old Firebase app deletion failed:", e));
-            }
-            
-            isAuthReady = false;
-            userId = null;
-            allAnalysisData = [];
-            renderAnalysisResultsList();
-            detailsSection.classList.add('hidden');
-
-            app = initializeApp(config);
-            auth = getAuth(app);
-            db = getFirestore(app);
-            storage = getStorage(app);
-            appendLog('Firebase 서비스 가져오기 완료.', 'text-cyan-400');
-
-            setupAuthListener();
-        }
-
         async function startApp() {
-            const savedConfig = localStorage.getItem('firebaseCustomConfig');
-            let config;
-            let isCustomConfig = false;
-
-            if (savedConfig) {
-                try {
-                    config = parseFirebaseConfig(savedConfig);
-                    firebaseConfigInput.value = savedConfig;
-                    isCustomConfig = true;
-                    pathIdentifier = config.projectId; // Use projectId for custom configs
-                    appendLog(`저장된 커스텀 Firebase 설정으로 연결합니다: ${config.projectId}`, 'text-yellow-400');
-                } catch (e) {
-                    appendLog('저장된 커스텀 Firebase 설정이 잘못되었습니다. 기본 설정으로 연결합니다.', 'text-red-500');
-                    localStorage.removeItem('firebaseCustomConfig');
-                }
-            }
+            const firebaseConfig = {
+                apiKey: "AIzaSyAyTh3kG9pPcgqcs-MHXSBKFgY_gnRWae0",
+                authDomain: "analyze-frame-focus.firebaseapp.com",
+                projectId: "analyze-frame-focus",
+                storageBucket: "analyze-frame-focus.appspot.com",
+                messagingSenderId: "995861796391",
+                appId: "1:995861796391:web:549944764ca046594c2002",
+                measurementId: "G-8GCL3Z7W9C"
+            };
             
-            if (!config) {
-                try {
-                    config = JSON.parse(typeof __firebase_config !== 'undefined' ? __firebase_config : '{}');
-                    pathIdentifier = typeof __app_id !== 'undefined' ? __app_id : 'default-app-id';
-                    appendLog('기본 제공 Firebase 설정으로 연결합니다.', 'text-cyan-400');
-                } catch (e) { /* Should not happen */ }
-            }
-
-            if (!config || !config.apiKey) {
-                connectionStatus.textContent = '오류: Firebase 구성 정보를 찾을 수 없습니다.';
-                connectionStatus.className = 'text-sm text-red-600 mt-1';
-                analyzeButton.disabled = true;
-                return;
-            }
+            document.querySelector('.bg-white.p-6.rounded-2xl.shadow-lg details')?.closest('.bg-white').style.display = 'none';
 
             try {
-                await initializeFirebase(config);
-                const statusMsg = isCustomConfig ? `커스텀 DB 연결 성공 (${config.projectId})` : '기본 DB 연결 성공';
-                connectionStatus.textContent = `연결 상태: ${statusMsg}`;
+                app = initializeApp(firebaseConfig);
+                auth = getAuth(app);
+                db = getFirestore(app);
+                storage = getStorage(app);
+                
+                connectionStatus.textContent = `연결 상태: 연결 성공 (${firebaseConfig.projectId})`;
                 connectionStatus.className = 'text-sm text-green-600 mt-1';
+                appendLog(`Firebase 연결 성공 (Project: ${firebaseConfig.projectId})`, 'text-green-500');
+
+                onAuthStateChanged(auth, async (user) => {
+                    if (user) {
+                        appendLog(`인증 완료 (UID: ${user.uid})`, 'text-green-500');
+                        listenForDataChanges();
+                    } else {
+                        await signInAnonymously(auth);
+                    }
+                });
+
             } catch (e) {
                 connectionStatus.textContent = '오류: Firebase 초기화 실패.';
                 connectionStatus.className = 'text-sm text-red-600 mt-1';
@@ -333,27 +269,6 @@
             }
 
             await loadFaceApiModels();
-        }
-
-        function setupAuthListener() {
-            onAuthStateChanged(auth, async (user) => {
-                if (user) {
-                    userId = user.uid;
-                    isAuthReady = true;
-                    appendLog(`인증 완료 (UID: ${userId})`, 'text-green-500');
-                    updateAnalyzeButtonState();
-                    listenForDataChanges();
-                } else {
-                    try {
-                        await signInAnonymously(auth);
-                    } catch (error) {
-                        console.error("익명 로그인 실패:", error);
-                        appendLog(`인증 실패: ${error.code} - ${error.message}`, 'text-red-500');
-                        isAuthReady = false;
-                        updateAnalyzeButtonState();
-                    }
-                }
-            });
         }
         
         async function loadFaceApiModels() {
@@ -371,10 +286,9 @@
         }
         
         function listenForDataChanges() {
-            if (!isAuthReady || !userId) return;
             if (unsubscribeFromAnalyses) unsubscribeFromAnalyses();
 
-            const analysesColPath = `artifacts/${pathIdentifier}/users/${userId}/analyses`;
+            const analysesColPath = `public_data/shared_documents/analyses`;
             unsubscribeFromAnalyses = onSnapshot(collection(db, analysesColPath), (snapshot) => {
                 allAnalysisData = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
                 allAnalysisData.sort((a, b) => (b.timestamp?.seconds ?? 0) - (a.timestamp?.seconds ?? 0));
@@ -385,33 +299,8 @@
         }
 
         function updateAnalyzeButtonState() { 
-            analyzeButton.disabled = videoFiles.length === 0 || !modelsLoaded || !isAuthReady; 
+            analyzeButton.disabled = videoFiles.length === 0 || !modelsLoaded; 
         }
-
-        saveConfigBtn.addEventListener('click', () => {
-            const configText = document.getElementById('firebase-config-input').value;
-            if (!configText) {
-                showConfirmationModal('오류', 'Firebase 구성(JSON)을 입력해주세요.');
-                return;
-            }
-            try {
-                parseFirebaseConfig(configText); // Validate format
-                localStorage.setItem('firebaseCustomConfig', configText);
-                showConfirmationModal('성공', '설정이 저장되었습니다. 페이지를 새로고침하여 적용합니다.').then(() => location.reload());
-            } catch (e) {
-                showConfirmationModal('오류', '입력한 구성 정보가 올바른 형식이 아닙니다.');
-            }
-        });
-
-        revertConfigBtn.addEventListener('click', () => {
-            localStorage.removeItem('firebaseCustomConfig');
-            showConfirmationModal('성공', '기본 설정으로 복원합니다. 페이지를 새로고침하여 적용합니다.').then(() => location.reload());
-        });
-
-        document.querySelector('details').addEventListener('toggle', event => {
-            const arrow = event.target.querySelector('.arrow');
-            arrow.style.transform = event.target.open ? 'rotate(90deg)' : 'rotate(0deg)';
-        });
 
         // --- Helper Function to convert Data URL to Blob ---
         function dataURLtoBlob(dataurl) {
