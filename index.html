@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>포커스 이슈 탐지기 - Ver 1.0.9 (최종 수정)</title>
+    <title>포커스 이슈 탐지기 - Ver 1.1.0 (검토 기능 추가)</title>
     <script src="https://cdn.tailwindcss.com"></script>
     <link href="https://fonts.googleapis.com/css2?family=Noto+Sans+KR:wght@400;500;700&display=swap" rel="stylesheet">
     <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
@@ -14,10 +14,7 @@
         @keyframes spin { 0% { transform: rotate(0deg); } 100% { transform: rotate(360deg); } }
         .result-item:hover { background-color: #f0f9ff; }
         .result-item.selected { background-color: #dbeafe; }
-        #custom-modal-overlay, #upload-test-modal-overlay { background-color: rgba(0, 0, 0, 0.5); }
-        .debug-toggle-bg:after { content: ''; position: absolute; top: 2px; left: 2px; background: white; border-radius: 9999px; height: 1.25rem; width: 1.25rem; transition: transform 0.2s; }
-        input:checked + .debug-toggle-bg:after { transform: translateX(100%); }
-        input:checked + .debug-toggle-bg { background-color: #3b82f6; }
+        #custom-modal-overlay, #upload-test-modal-overlay, #review-modal-overlay { background-color: rgba(0, 0, 0, 0.5); }
     </style>
 </head>
 <body class="bg-gray-100 text-gray-800">
@@ -30,15 +27,8 @@
             </h1>
             <p id="connection-status" class="text-sm text-gray-500 mt-1">연결 상태: 확인 중...</p>
             <p id="model-status" class="text-sm text-yellow-600 mt-1">인식 모델 로딩 중...</p>
-            <div class="absolute top-4 right-4 flex items-center space-x-4">
+            <div class="absolute top-4 right-4">
                 <button id="show-upload-test-btn" class="text-sm bg-gray-500 text-white font-semibold py-1 px-3 rounded-full hover:bg-gray-600 transition">연결 테스트</button>
-                <div class="flex items-center space-x-2">
-                    <span class="text-sm font-medium text-gray-700">디버그 모드</span>
-                    <label for="debug-toggle" class="relative inline-flex items-center cursor-pointer">
-                        <input type="checkbox" id="debug-toggle" class="sr-only peer">
-                        <div class="w-11 h-7 bg-gray-200 rounded-full peer peer-focus:ring-4 peer-focus:ring-blue-300 debug-toggle-bg"></div>
-                    </label>
-                </div>
             </div>
         </header>
         
@@ -68,7 +58,7 @@
                         <p id="progress-text" class="text-gray-600 mt-2"></p>
                         <div id="upload-progress-container" class="w-full mt-4 hidden">
                              <div class="w-full bg-gray-200 rounded-full h-4">
-                                <div id="upload-progress-bar" class="bg-blue-600 h-4 rounded-full text-xs font-medium text-white text-center leading-4 transition-all duration-300" style="width: 0%"></div>
+                                 <div id="upload-progress-bar" class="bg-blue-600 h-4 rounded-full text-xs font-medium text-white text-center leading-4 transition-all duration-300" style="width: 0%"></div>
                             </div>
                         </div>
                         <button id="cancel-upload-btn" class="hidden mt-4 bg-red-600 text-white font-bold py-2 px-6 rounded-full hover:bg-red-700 transition">
@@ -115,6 +105,24 @@
         </main>
     </div>
 
+    <!-- Pre-upload Review Modal -->
+    <div id="review-modal-overlay" class="hidden fixed inset-0 z-50 flex items-center justify-center transition-opacity duration-300">
+        <div class="bg-white rounded-lg shadow-xl p-6 w-11/12 max-w-4xl transform transition-transform duration-300 scale-95 flex flex-col h-[90vh]">
+            <div class="flex justify-between items-center mb-4 border-b pb-3">
+                <h3 class="text-lg font-bold text-gray-900">업로드 전 검토</h3>
+                <button id="close-review-modal-btn" class="text-gray-500 hover:text-gray-800 text-2xl leading-none">&times;</button>
+            </div>
+            <p class="text-sm text-gray-600 mb-4">업로드할 문제 프레임을 선택하세요. 선택 해제된 항목은 서버에 저장되지 않습니다.</p>
+            <div id="review-frames-list" class="flex-grow overflow-y-auto space-y-4 pr-2">
+                <!-- Review frames will be dynamically inserted here -->
+            </div>
+            <div class="mt-6 flex justify-end space-x-3 border-t pt-4">
+                <button id="review-cancel-btn" class="px-4 py-2 bg-gray-200 text-gray-800 rounded-md hover:bg-gray-300">전체 취소</button>
+                <button id="review-confirm-btn" class="px-4 py-2 bg-blue-600 text-white rounded-md hover:bg-blue-700">선택한 프레임 업로드</button>
+            </div>
+        </div>
+    </div>
+
     <!-- Upload Test Modal -->
     <div id="upload-test-modal-overlay" class="hidden fixed inset-0 z-50 flex items-center justify-center transition-opacity duration-300">
         <div id="upload-test-modal" class="bg-white rounded-lg shadow-xl p-6 w-11/12 max-w-lg transform transition-transform duration-300 scale-95">
@@ -156,14 +164,13 @@
         import { getFirestore, collection, addDoc, onSnapshot, doc, updateDoc, deleteDoc, serverTimestamp } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-firestore.js";
         import { getStorage, ref, uploadBytesResumable, getDownloadURL, deleteObject } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-storage.js";
 
-        const APP_VERSION = "1.0.9";
+        const APP_VERSION = "1.1.0";
         document.title = `포커스 이슈 탐지기 - Ver ${APP_VERSION}`;
         document.getElementById('version-display').textContent = `Ver ${APP_VERSION}`;
         
         // --- DOM References ---
         const connectionStatus = document.getElementById('connection-status');
         const modelStatus = document.getElementById('model-status');
-        const debugToggle = document.getElementById('debug-toggle');
         const videoFilesInput = document.getElementById('video-files-input');
         const thresholdSlider = document.getElementById('threshold-slider');
         const thresholdValueEl = document.getElementById('threshold-value');
@@ -183,14 +190,21 @@
         const keyFramesContainer = document.getElementById('key-frames-container');
         const exportCsvBtn = document.getElementById('export-csv-btn');
         const showUploadTestBtn = document.getElementById('show-upload-test-btn');
+        // Test Modal
         const uploadTestModalOverlay = document.getElementById('upload-test-modal-overlay');
         const closeTestModalBtn = document.getElementById('close-test-modal-btn');
         const testFileInput = document.getElementById('test-file-input');
         const startStorageTestBtn = document.getElementById('start-storage-test-btn');
         const startFirestoreTestBtn = document.getElementById('start-firestore-test-btn');
+        // Review Modal
+        const reviewModalOverlay = document.getElementById('review-modal-overlay');
+        const reviewFramesList = document.getElementById('review-frames-list');
+        const closeReviewModalBtn = document.getElementById('close-review-modal-btn');
+        const reviewCancelBtn = document.getElementById('review-cancel-btn');
+        const reviewConfirmBtn = document.getElementById('review-confirm-btn');
+
 
         // --- Global State ---
-        let DEBUG_MODE = localStorage.getItem('debugMode') === 'true';
         let videoFiles = [];
         let modelsLoaded = false;
         const MODEL_URL = 'https://cdn.jsdelivr.net/gh/justadudewhohacks/face-api.js@0.22.2/weights';
@@ -205,19 +219,14 @@
         let unsubscribeFromAnalyses = null;
 
         // --- UI & Log Functions ---
-        function appendLog(message, colorClass = 'text-gray-400') {
+        function appendLog(message, colorClass = 'text-gray-400', source = 'APP') {
             if (logContainer.querySelector("#log-placeholder")) logContainer.innerHTML = '';
             const logEntry = document.createElement('div');
-            logEntry.textContent = `[${new Date().toLocaleTimeString()}] ${message}`;
+            const prefix = `[${source}]`;
+            logEntry.textContent = `[${new Date().toLocaleTimeString()}] ${prefix} ${message}`;
             logEntry.className = colorClass;
             logContainer.appendChild(logEntry);
             logContainer.scrollTop = logContainer.scrollHeight;
-        }
-
-        function debugLog(message) {
-            if (DEBUG_MODE) {
-                appendLog(`[DEBUG] ${message}`, 'text-purple-400');
-            }
         }
 
         function appendImageLog(data) {
@@ -241,7 +250,7 @@
                         <p class="text-xs text-red-400 mb-1">문제 프레임 (전체) - 점수: ${blurryScoreText}</p>
                         <img src="${data.blurryFull}" class="w-full rounded">
                     </div>
-                     <div>
+                   <div>
                         <p class="text-xs text-red-400 mb-1">문제 프레임 (얼굴)</p>
                         <img src="${data.blurryCropped || 'https://placehold.co/300x200/1f2937/4b5563?text=No+Face'}" class="w-full rounded">
                     </div>
@@ -251,7 +260,7 @@
             logContainer.scrollTop = logContainer.scrollHeight;
         }
 
-        // --- Custom Modal Logic ---
+        // --- Modal Logic ---
         const modalOverlay = document.getElementById('custom-modal-overlay');
         const modal = document.getElementById('custom-modal');
         const modalTitle = document.getElementById('modal-title');
@@ -259,6 +268,7 @@
         const modalCancelBtn = document.getElementById('modal-cancel-btn');
         const modalConfirmBtn = document.getElementById('modal-confirm-btn');
         let modalResolve = null;
+        let reviewModalResolve = null;
 
         function showConfirmationModal(title, message) {
             modalTitle.textContent = title;
@@ -277,11 +287,61 @@
         modalConfirmBtn.addEventListener('click', () => closeModal(true));
         modalOverlay.addEventListener('click', (e) => { if (e.target === modalOverlay) closeModal(false); });
 
+        function handleCloseReviewModal(confirmed) {
+            reviewModalOverlay.classList.add('hidden');
+            if (!reviewModalResolve) return;
+
+            if (!confirmed) {
+                reviewModalResolve(null); // Cancelled
+            } else {
+                const selectedIndices = [];
+                const frameElements = reviewFramesList.querySelectorAll('.review-frame-item');
+                frameElements.forEach(el => {
+                    const checkbox = el.querySelector('input[type="checkbox"]');
+                    if (checkbox.checked) {
+                        selectedIndices.push(parseInt(el.dataset.frameIndex, 10));
+                    }
+                });
+                reviewModalResolve(selectedIndices);
+            }
+            reviewModalResolve = null;
+        }
+
+        function showReviewModal(keyFrames) {
+            reviewFramesList.innerHTML = ''; // Clear previous content
+            keyFrames.forEach((frame, index) => {
+                const item = document.createElement('div');
+                item.className = 'review-frame-item p-3 border rounded-lg bg-gray-50';
+                item.dataset.frameIndex = index;
+                item.innerHTML = `
+                    <div class="flex items-start gap-4">
+                        <input type="checkbox" id="review-check-${index}" class="mt-1 h-5 w-5 text-blue-600 border-gray-300 rounded focus:ring-blue-500" checked>
+                        <label for="review-check-${index}" class="flex-grow cursor-pointer">
+                            <p class="font-semibold">문제 감지 @ ${frame.time.toFixed(2)}초</p>
+                            <p class="text-xs text-gray-500">이전 프레임 점수: ${frame.sharpScore?.toFixed(2) ?? 'N/A'} &rarr; 문제 프레임 점수: ${frame.blurryScore?.toFixed(2) ?? 'N/A'}</p>
+                            <div class="grid grid-cols-2 sm:grid-cols-4 gap-2 mt-2">
+                                <img src="${frame.sharpFull}" class="w-full rounded border" title="이전 프레임 (전체)">
+                                <img src="${frame.sharpCropped || 'https://placehold.co/300x200/1f2937/4b5563?text=No+Face'}" class="w-full rounded border" title="이전 프레임 (얼굴)">
+                                <img src="${frame.blurryFull}" class="w-full rounded border" title="문제 프레임 (전체)">
+                                <img src="${frame.blurryCropped || 'https://placehold.co/300x200/1f2937/4b5563?text=No+Face'}" class="w-full rounded border" title="문제 프레임 (얼굴)">
+                            </div>
+                        </label>
+                    </div>
+                `;
+                reviewFramesList.appendChild(item);
+            });
+
+            reviewModalOverlay.classList.remove('hidden');
+            return new Promise(resolve => { reviewModalResolve = resolve; });
+        }
+        closeReviewModalBtn.addEventListener('click', () => handleCloseReviewModal(false));
+        reviewCancelBtn.addEventListener('click', () => handleCloseReviewModal(false));
+        reviewConfirmBtn.addEventListener('click', () => handleCloseReviewModal(true));
+
         // --- Initialization & Firebase Connection Management ---
         async function startApp() {
             appendLog('앱 시작...', 'text-white');
-            debugToggle.checked = DEBUG_MODE;
-
+            
             const firebaseConfig = {
                 apiKey: "AIzaSyAyTh3kG9pPcgqcs-MHXSBKFgY_gnRWae0",
                 authDomain: "analyze-frame-focus.firebaseapp.com",
@@ -293,7 +353,6 @@
             };
             
             try {
-                debugLog('Firebase 초기화 시도...');
                 app = initializeApp(firebaseConfig);
                 auth = getAuth(app);
                 db = getFirestore(app);
@@ -303,41 +362,39 @@
                 connectionStatus.className = 'text-sm text-green-600 mt-1';
                 appendLog(`Firebase 연결 성공 (Project: ${firebaseConfig.projectId})`, 'text-green-500');
 
-                debugLog('인증 상태 리스너 설정...');
                 onAuthStateChanged(auth, async (user) => {
                     if (user) {
-                        debugLog(`인증 상태 변경 감지: 로그인됨 (UID: ${user.uid})`);
+                        appendLog(`인증 완료 (UID: ${user.uid})`, 'text-green-500');
                         listenForDataChanges();
                     } else {
-                        debugLog('인증 상태 변경 감지: 로그아웃됨. 익명 로그인 시도...');
                         await signInAnonymously(auth);
-                        debugLog('익명 로그인 요청 완료.');
                     }
                 });
 
             } catch (e) {
                 connectionStatus.textContent = '오류: Firebase 초기화 실패.';
                 connectionStatus.className = 'text-sm text-red-600 mt-1';
-                appendLog(`Firebase 초기화 오류: ${e.message}\n${e.stack}`, 'text-red-500');
+                appendLog(`Firebase 초기화 오류: ${e.message}`, 'text-red-500');
                 analyzeButton.disabled = true;
             }
+
+            const savedThreshold = localStorage.getItem('focusThreshold') || '50';
+            updateThreshold(savedThreshold, false); // Don't save on initial load
 
             await loadFaceApiModels();
         }
         
         async function loadFaceApiModels() {
             if (modelsLoaded) return;
-            debugLog('얼굴 인식 모델 로딩 시작...');
             try {
                 await faceapi.nets.tinyFaceDetector.loadFromUri(MODEL_URL);
                 modelsLoaded = true;
                 modelStatus.textContent = '얼굴 인식 모델 로딩 완료!';
                 modelStatus.className = 'text-sm text-green-600 mt-1';
-                debugLog('얼굴 인식 모델 로딩 성공.');
                 updateAnalyzeButtonState();
             } catch (error) {
                 modelStatus.textContent = '모델 로딩 실패';
-                appendLog(`모델 로딩 실패: ${error.message}\n${error.stack}`, 'text-red-500');
+                appendLog(`모델 로딩 실패: ${error.message}`, 'text-red-500');
             }
         }
         
@@ -345,9 +402,7 @@
             if (unsubscribeFromAnalyses) unsubscribeFromAnalyses();
 
             const analysesColPath = `public_data/shared_documents/analyses`;
-            debugLog(`DB 리스너 설정 시도: ${analysesColPath}`);
             unsubscribeFromAnalyses = onSnapshot(collection(db, analysesColPath), (snapshot) => {
-                debugLog(`DB 데이터 수신 성공. ${snapshot.size}개 기록 발견.`);
                 allAnalysisData = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
                 allAnalysisData.sort((a, b) => (b.timestamp?.seconds ?? 0) - (a.timestamp?.seconds ?? 0));
                 renderAnalysisResultsList();
@@ -375,7 +430,26 @@
 
         // --- Core Logic & Render Functions ---
         function calculateFocusScore(imageData) {
-            const { width, height, data } = imageData; if (width === 0 || height === 0) return 0; const gray = new Uint8Array(width * height); for (let i = 0; i < data.length; i += 4) { gray[i / 4] = 0.299 * data[i] + 0.587 * data[i+1] + 0.114 * data[i+2]; } let laplacianMean = 0; const laplacianValues = []; for (let y = 1; y < height - 1; y++) { for (let x = 1; x < width - 1; x++) { const i = y * width + x; const laplacian = gray[i - width] + gray[i + width] + gray[i - 1] + gray[i + 1] - 4 * gray[i]; laplacianValues.push(laplacian); laplacianMean += laplacian; } } if (laplacianValues.length === 0) return 0; laplacianMean /= laplacianValues.length; return laplacianValues.reduce((acc, val) => acc + Math.pow(val - laplacianMean, 2), 0) / laplacianValues.length;
+            const { width, height, data } = imageData;
+            if (width === 0 || height === 0) return 0;
+            const gray = new Uint8Array(width * height);
+            for (let i = 0; i < data.length; i += 4) {
+                gray[i / 4] = 0.299 * data[i] + 0.587 * data[i + 1] + 0.114 * data[i + 2];
+            }
+            let laplacianMean = 0;
+            const laplacianValues = [];
+            for (let y = 1; y < height - 1; y++) {
+                for (let x = 1; x < width - 1; x++) {
+                    const i = y * width + x;
+                    const laplacian = gray[i - width] + gray[i + width] + gray[i - 1] + gray[i + 1] - 4 * gray[i];
+                    laplacianValues.push(laplacian);
+                    laplacianMean += laplacian;
+                }
+            }
+            if (laplacianValues.length === 0) return 0;
+            laplacianMean /= laplacianValues.length;
+            const variance = laplacianValues.reduce((acc, val) => acc + Math.pow(val - laplacianMean, 2), 0) / laplacianValues.length;
+            return variance;
         }
 
         function getCentermostFace(detections, videoWidth, videoHeight) {
@@ -625,25 +699,29 @@
         // --- Main Analysis Logic ---
         videoFilesInput.addEventListener('change', (event) => { videoFiles = Array.from(event.target.files); updateAnalyzeButtonState(); });
         
+        function updateThreshold(value, save = true) {
+            const min = parseInt(thresholdSlider.min, 10);
+            const max = parseInt(thresholdSlider.max, 10);
+            let clampedValue = parseInt(value, 10);
+
+            if (isNaN(clampedValue)) clampedValue = 50;
+
+            clampedValue = Math.max(min, Math.min(max, clampedValue));
+
+            thresholdSlider.value = clampedValue;
+            thresholdValueEl.textContent = clampedValue;
+            if (save) {
+                localStorage.setItem('focusThreshold', clampedValue);
+            }
+        }
+
+        thresholdSlider.addEventListener('input', (event) => updateThreshold(event.target.value));
+        thresholdValueEl.addEventListener('blur', (event) => updateThreshold(event.target.textContent));
         thresholdValueEl.addEventListener('keydown', (event) => {
             if (event.key === 'Enter') {
                 event.preventDefault();
                 event.target.blur();
             }
-        });
-
-        thresholdValueEl.addEventListener('blur', (event) => {
-            let value = parseInt(event.target.textContent, 10);
-            if (isNaN(value)) value = 30;
-            const min = parseInt(thresholdSlider.min, 10);
-            const max = parseInt(thresholdSlider.max, 10);
-            value = Math.max(min, Math.min(max, value));
-            event.target.textContent = value;
-            thresholdSlider.value = value;
-        });
-
-        thresholdSlider.addEventListener('input', (event) => {
-            thresholdValueEl.textContent = event.target.value;
         });
         
         cancelUploadBtn.addEventListener('click', () => {
@@ -655,7 +733,7 @@
 
         async function uploadWithProgress(storageRef, blob, signal) {
             return new Promise((resolve, reject) => {
-                if (!blob) return reject(new Error("업로드할 데이터가 없습니다. (null blob)"));
+                if (!blob) return resolve(null); // Resolve with null if blob is null
                 
                 const uploadTask = uploadBytesResumable(storageRef, blob);
 
@@ -763,9 +841,9 @@
                                 blurryCropped: currentCroppedFace,
                                 blurryBox: currentDetectionBox,
                                 blurryScore: currentScore
-                             };
-                             appendImageLog(data);
-                             keyFramesData.push(data);
+                            };
+                            appendImageLog(data);
+                            keyFramesData.push(data);
                         }
                         
                         previousFrameState = { 
@@ -779,46 +857,61 @@
                         await yieldToMain();
                     }
                     
-                    const uploadedKeyFrames = [];
-                    const totalKeyFrames = keyFramesData.length;
-                    if (totalKeyFrames > 0) {
-                        uploadProgressContainer.classList.remove('hidden');
-                        for (let k = 0; k < totalKeyFrames; k++) {
-                            if (signal.aborted) throw new Error("업로드가 중단되었습니다.");
-                            
-                            const kf = keyFramesData[k];
-                            const timestamp = Date.now();
-                            
-                            const blobs = {
-                                sharpFull: dataURLtoBlob(kf.sharpFull),
-                                sharpCropped: dataURLtoBlob(kf.sharpCropped),
-                                blurryFull: dataURLtoBlob(kf.blurryFull),
-                                blurryCropped: dataURLtoBlob(kf.blurryCropped)
-                            };
+                    let uploadedKeyFrames = [];
+                    if (keyFramesData.length > 0) {
+                        progressText.textContent = `분석 완료. ${keyFramesData.length}개의 문제 의심 프레임을 검토하세요.`;
+                        const selectedFrameIndices = await showReviewModal(keyFramesData);
 
-                            const refs = {
-                                sharpFull: ref(storage, `public_assets/${timestamp}_sharp_full.jpeg`),
-                                sharpCropped: ref(storage, `public_assets/${timestamp}_sharp_crop.jpeg`),
-                                blurryFull: ref(storage, `public_assets/${timestamp}_blurry_full.jpeg`),
-                                blurryCropped: ref(storage, `public_assets/${timestamp}_blurry_crop.jpeg`)
-                            };
+                        if (selectedFrameIndices === null) {
+                            throw new Error("사용자가 검토를 취소했습니다.");
+                        }
 
-                            progressText.textContent = `에셋 업로드 중... (${k * 4 + 1}/${totalKeyFrames * 4})`;
-                            const sharpFullUrl = await uploadWithProgress(refs.sharpFull, blobs.sharpFull, signal);
-                            progressText.textContent = `에셋 업로드 중... (${k * 4 + 2}/${totalKeyFrames * 4})`;
-                            const sharpCroppedUrl = await uploadWithProgress(refs.sharpCropped, blobs.sharpCropped, signal);
-                            progressText.textContent = `에셋 업로드 중... (${k * 4 + 3}/${totalKeyFrames * 4})`;
-                            const blurryFullUrl = await uploadWithProgress(refs.blurryFull, blobs.blurryFull, signal);
-                            progressText.textContent = `에셋 업로드 중... (${k * 4 + 4}/${totalKeyFrames * 4})`;
-                            const blurryCroppedUrl = await uploadWithProgress(refs.blurryCropped, blobs.blurryCropped, signal);
+                        if (selectedFrameIndices.length > 0) {
+                            const framesToUpload = selectedFrameIndices.map(index => keyFramesData[index]);
+                            uploadProgressContainer.classList.remove('hidden');
                             
-                            uploadedKeyFrames.push({ 
-                                time: kf.time, 
-                                sharpFullUrl, sharpCroppedUrl, blurryFullUrl, blurryCroppedUrl, 
-                                sharpBox: kf.sharpBox ? {x: kf.sharpBox.x, y: kf.sharpBox.y, width: kf.sharpBox.width, height: kf.sharpBox.height} : null,
-                                blurryBox: kf.blurryBox ? {x: kf.blurryBox.x, y: kf.blurryBox.y, width: kf.blurryBox.width, height: kf.blurryBox.height} : null,
-                                sharpScore: kf.sharpScore, blurryScore: kf.blurryScore
-                            });
+                            for (let k = 0; k < framesToUpload.length; k++) {
+                                if (signal.aborted) throw new Error("업로드가 중단되었습니다.");
+                                
+                                const kf = framesToUpload[k];
+                                const timestamp = `${Date.now()}_${k}`;
+                                
+                                const blobs = {
+                                    sharpFull: dataURLtoBlob(kf.sharpFull),
+                                    sharpCropped: dataURLtoBlob(kf.sharpCropped),
+                                    blurryFull: dataURLtoBlob(kf.blurryFull),
+                                    blurryCropped: dataURLtoBlob(kf.blurryCropped)
+                                };
+
+                                const refs = {
+                                    sharpFull: ref(storage, `public_assets/${timestamp}_sharp_full.jpeg`),
+                                    sharpCropped: ref(storage, `public_assets/${timestamp}_sharp_crop.jpeg`),
+                                    blurryFull: ref(storage, `public_assets/${timestamp}_blurry_full.jpeg`),
+                                    blurryCropped: ref(storage, `public_assets/${timestamp}_blurry_crop.jpeg`)
+                                };
+
+                                const progressBase = k * 4;
+                                const totalUploads = framesToUpload.length * 4;
+
+                                progressText.textContent = `에셋 업로드 중... (${progressBase + 1}/${totalUploads})`;
+                                const sharpFullUrl = await uploadWithProgress(refs.sharpFull, blobs.sharpFull, signal);
+                                progressText.textContent = `에셋 업로드 중... (${progressBase + 2}/${totalUploads})`;
+                                const sharpCroppedUrl = await uploadWithProgress(refs.sharpCropped, blobs.sharpCropped, signal);
+                                progressText.textContent = `에셋 업로드 중... (${progressBase + 3}/${totalUploads})`;
+                                const blurryFullUrl = await uploadWithProgress(refs.blurryFull, blobs.blurryFull, signal);
+                                progressText.textContent = `에셋 업로드 중... (${progressBase + 4}/${totalUploads})`;
+                                const blurryCroppedUrl = await uploadWithProgress(refs.blurryCropped, blobs.blurryCropped, signal);
+                                
+                                uploadedKeyFrames.push({ 
+                                    time: kf.time, 
+                                    sharpFullUrl, sharpCroppedUrl, blurryFullUrl, blurryCroppedUrl, 
+                                    sharpBox: kf.sharpBox ? {x: kf.sharpBox.x, y: kf.sharpBox.y, width: kf.sharpBox.width, height: kf.sharpBox.height} : null,
+                                    blurryBox: kf.blurryBox ? {x: kf.blurryBox.x, y: kf.blurryBox.y, width: kf.blurryBox.width, height: kf.blurryBox.height} : null,
+                                    sharpScore: kf.sharpScore, blurryScore: kf.blurryScore
+                                });
+                            }
+                        } else {
+                             appendLog('검토 후 업로드할 프레임이 선택되지 않았습니다.', 'text-yellow-500');
                         }
                     }
 
@@ -836,7 +929,7 @@
                 }
             } catch (error) {
                 if (error.code === 'storage/canceled' || (error.message && (error.message.includes('canceled') || error.message.includes('중단')))) {
-                    appendLog(`분석/업로드 중단됨: 사용자가 취소했습니다.`, 'text-yellow-500');
+                    appendLog(`분석/업로드 중단됨: ${error.message}`, 'text-yellow-500');
                 } else {
                     appendLog(`분석 중 오류 발생: ${error.message}`, 'text-red-500');
                     console.error("Analysis Error Stack:", error.stack);
@@ -900,7 +993,7 @@
             let timeoutId = setTimeout(() => {
                 if (!firstResponseReceived) {
                     uploadTask.cancel();
-                    appendLog('[SERVER] 오류: 30초 응답 시간 초과. 서버로부터 어떠한 응답도 받지 못했습니다.', 'text-red-500', 'SERVER');
+                    appendLog('[SERVER] 오류: 30초 응답 시간 초과. 서버로부터 어떠한 응답도 받지 못했습니다.', 'text-red-500');
                     clearInterval(heartbeatInterval);
                 }
             }, 30000);
@@ -915,23 +1008,23 @@
                     if (!firstResponseReceived) {
                         firstResponseReceived = true;
                         clearTimeout(timeoutId);
-                        appendLog('첫 통신 성공. 업로드 등록 완료.', 'text-green-500', 'SERVER');
+                        appendLog('[SERVER] 첫 통신 성공. 업로드 등록 완료.', 'text-green-500', 'SERVER');
                     }
                     const progress = (snapshot.bytesTransferred / snapshot.totalBytes) * 100;
-                    appendLog(`진행률: ${Math.round(progress)}%`, 'text-green-500', 'SERVER');
+                    appendLog(`[SERVER] 진행률: ${Math.round(progress)}%`, 'text-green-500', 'SERVER');
                 },
                 (error) => {
                     clearTimeout(timeoutId);
                     clearInterval(heartbeatInterval);
-                    appendLog(`Storage 업로드 실패: ${error.code}`, 'text-red-500', 'SERVER');
+                    appendLog(`[SERVER] Storage 업로드 실패: ${error.code}`, 'text-red-500', 'SERVER');
                     console.error("Test Upload Error:", error.stack);
                 },
                 async () => {
                     clearTimeout(timeoutId);
                     clearInterval(heartbeatInterval);
                     const downloadURL = await getDownloadURL(uploadTask.snapshot.ref);
-                    appendLog('Storage 업로드 성공!', 'text-green-500', 'SERVER');
-                    appendLog(`URL: ${downloadURL}`, 'text-blue-400', 'SERVER');
+                    appendLog('[SERVER] Storage 업로드 성공!', 'text-green-500', 'SERVER');
+                    appendLog(`[SERVER] URL: ${downloadURL}`, 'text-blue-400', 'SERVER');
                 }
             );
             appendLog('[CLIENT] state_changed 이벤트 리스너 설정 완료. 서버 응답 대기 중...', 'text-purple-400');
