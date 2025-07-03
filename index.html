@@ -3,40 +3,53 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>포커스 이슈 탐지기 - Ver 1.2.0 (로직 개선)</title>
+    <title>포커스 이슈 탐지기 - v2.4 (메인 스레드 분석 복귀)</title>
     <script src="https://cdn.tailwindcss.com"></script>
     <link href="https://fonts.googleapis.com/css2?family=Noto+Sans+KR:wght@400;500;700&display=swap" rel="stylesheet">
     <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
     <script src="https://cdn.jsdelivr.net/npm/face-api.js@0.22.2/dist/face-api.min.js"></script>
     <style>
-        body { font-family: 'Noto Sans KR', sans-serif; scroll-behavior: smooth; }
+        body { font-family: 'Noto Sans KR', sans-serif; scroll-behavior: smooth; padding-top: 60px; }
         .loader { border: 5px solid #f3f3f3; border-top: 5px solid #3498db; border-radius: 50%; width: 50px; height: 50px; animation: spin 1s linear infinite; }
         @keyframes spin { 0% { transform: rotate(0deg); } 100% { transform: rotate(360deg); } }
         .result-item:hover { background-color: #f0f9ff; }
-        .result-item.selected { background-color: #dbeafe; }
+        .result-item.selected { background-color: #dbeafe; border-left: 4px solid #2563eb; }
         .result-item.locked { background-color: #f1f5f9; opacity: 0.6; cursor: not-allowed; }
         .result-item.locked:hover { background-color: #f1f5f9; }
         #custom-modal-overlay, #upload-test-modal-overlay, #review-modal-overlay { background-color: rgba(0, 0, 0, 0.5); }
+        .nav-link { transition: all 0.2s ease-in-out; }
+        .nav-link:hover { color: #2563eb; transform: translateY(-2px); }
     </style>
 </head>
 <body class="bg-gray-100 text-gray-800">
 
-    <div class="container mx-auto p-4 md:p-8 max-w-7xl">
-        <header class="relative text-center mb-8 py-4">
-            <h1 class="text-2xl md:text-3xl font-bold text-gray-900">
+    <nav class="fixed top-0 left-0 right-0 bg-white/80 backdrop-blur-sm shadow-md z-40 h-[60px] flex items-center justify-center">
+        <div class="container mx-auto px-4 flex justify-between items-center">
+             <h1 class="text-xl md:text-2xl font-bold text-gray-900">
                 포커스 이슈 탐지기
-                <span id="version-display" class="text-base align-middle text-blue-600 font-semibold"></span>
+                <span id="version-display" class="text-sm align-middle text-blue-600 font-semibold"></span>
             </h1>
+            <div class="hidden md:flex items-center space-x-6 font-semibold text-gray-600">
+                <a href="#control-panel-section" class="nav-link">1. 제어판</a>
+                <a href="#history-section" class="nav-link">2. 분석 기록</a>
+                <a href="#details-section" class="nav-link">3. 상세 분석</a>
+                <a href="#log-section" class="nav-link">4. 실시간 로그</a>
+            </div>
+            <div class="flex items-center">
+                 <button id="show-upload-test-btn" class="text-sm bg-gray-500 text-white font-semibold py-1 px-3 rounded-full hover:bg-gray-600 transition">연결 테스트</button>
+            </div>
+        </div>
+    </nav>
+
+    <div class="container mx-auto p-4 md:p-8 max-w-7xl">
+        <header class="text-center mb-8 py-4">
             <p id="connection-status" class="text-sm text-gray-500 mt-1">연결 상태: 확인 중...</p>
             <p id="model-status" class="text-sm text-yellow-600 mt-1">인식 모델 로딩 중...</p>
-            <div class="absolute top-4 right-4">
-                <button id="show-upload-test-btn" class="text-sm bg-gray-500 text-white font-semibold py-1 px-3 rounded-full hover:bg-gray-600 transition">연결 테스트</button>
-            </div>
         </header>
         
         <main class="space-y-8">
             <!-- Control Panel -->
-            <div class="bg-white p-6 rounded-2xl shadow-lg">
+            <div id="control-panel-section" class="bg-white p-6 rounded-2xl shadow-lg">
                 <h2 class="text-xl font-semibold mb-4 border-b pb-2">1. 제어 패널</h2>
                 <div class="grid grid-cols-1 md:grid-cols-2 gap-6 items-center">
                     <div>
@@ -77,9 +90,9 @@
             </div>
 
             <!-- Analysis History -->
-            <div class="bg-white p-6 rounded-2xl shadow-lg">
+            <div id="history-section" class="bg-white p-6 rounded-2xl shadow-lg">
                  <h2 class="text-xl font-semibold mb-4 border-b pb-2">2. 분석 기록</h2>
-                 <div id="results-list-container" class="space-y-1">
+                 <div id="results-list-container" class="space-y-1 max-h-[60vh] overflow-y-auto">
                      <p id="results-list-placeholder" class="text-gray-500 text-center py-4">인증이 완료되면 기록을 불러옵니다...</p>
                  </div>
                  <div id="pagination-controls" class="pt-4 mt-4 border-t flex justify-center gap-2"></div>
@@ -106,14 +119,14 @@
             </div>
             
             <!-- Log Container -->
-            <div class="bg-white p-6 rounded-2xl shadow-lg">
+            <div id="log-section" class="bg-white p-6 rounded-2xl shadow-lg">
                 <h2 class="text-xl font-semibold mb-4 border-b pb-2">실시간 분석 로그</h2>
                 <div id="log-container" class="min-h-[10rem] max-h-[50rem] overflow-y-auto bg-gray-900 text-white font-mono rounded-lg p-4 border text-sm"><p id="log-placeholder" class="text-gray-400 text-center py-4">분석을 시작하거나 과거 기록을 선택하면 로그가 표시됩니다.</p></div>
             </div>
         </main>
     </div>
 
-    <!-- Pre-upload Review Modal -->
+    <!-- Modals (unchanged from previous version) -->
     <div id="review-modal-overlay" class="hidden fixed inset-0 z-50 flex items-center justify-center transition-opacity duration-300">
         <div class="bg-white rounded-lg shadow-xl p-6 w-11/12 max-w-4xl transform transition-transform duration-300 scale-95 flex flex-col h-[90vh]">
             <div class="flex justify-between items-center mb-4 border-b pb-3">
@@ -121,17 +134,13 @@
                 <button id="close-review-modal-btn" class="text-gray-500 hover:text-gray-800 text-2xl leading-none">&times;</button>
             </div>
             <p class="text-sm text-gray-600 mb-4">업로드할 문제 프레임을 선택하세요. 선택 해제된 항목은 서버에 저장되지 않습니다.</p>
-            <div id="review-frames-list" class="flex-grow overflow-y-auto space-y-4 pr-2">
-                <!-- Review frames will be dynamically inserted here -->
-            </div>
+            <div id="review-frames-list" class="flex-grow overflow-y-auto space-y-4 pr-2"></div>
             <div class="mt-6 flex justify-end space-x-3 border-t pt-4">
                 <button id="review-cancel-btn" class="px-4 py-2 bg-gray-200 text-gray-800 rounded-md hover:bg-gray-300">전체 취소</button>
                 <button id="review-confirm-btn" class="px-4 py-2 bg-blue-600 text-white rounded-md hover:bg-blue-700">선택한 프레임 업로드</button>
             </div>
         </div>
     </div>
-
-    <!-- Upload Test Modal -->
     <div id="upload-test-modal-overlay" class="hidden fixed inset-0 z-50 flex items-center justify-center transition-opacity duration-300">
         <div id="upload-test-modal" class="bg-white rounded-lg shadow-xl p-6 w-11/12 max-w-lg transform transition-transform duration-300 scale-95">
             <div class="flex justify-between items-center mb-4">
@@ -152,8 +161,6 @@
             </div>
         </div>
     </div>
-
-    <!-- Custom Modal for Confirmation -->
     <div id="custom-modal-overlay" class="hidden fixed inset-0 z-50 flex items-center justify-center transition-opacity duration-300">
         <div id="custom-modal" class="bg-white rounded-lg shadow-xl p-6 w-11/12 max-w-md transform transition-transform duration-300 scale-95">
             <h3 id="modal-title" class="text-lg font-bold text-gray-900">확인</h3>
@@ -172,9 +179,22 @@
         import { getFirestore, collection, addDoc, onSnapshot, doc, updateDoc, deleteDoc, serverTimestamp, runTransaction } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-firestore.js";
         import { getStorage, ref, uploadBytesResumable, getDownloadURL, deleteObject } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-storage.js";
 
-        const APP_VERSION = "1.2.0";
-        document.title = `포커스 이슈 탐지기 - Ver ${APP_VERSION}`;
-        document.getElementById('version-display').textContent = `Ver ${APP_VERSION}`;
+        // --- Constants ---
+        const C = {
+            APP_VERSION: "2.4",
+            FIREBASE_COLLECTION: 'public_data/shared_documents/analyses',
+            STORAGE_PATH: 'public_assets',
+            TEST_STORAGE_PATH: 'public_assets/test-uploads',
+            TEST_FIRESTORE_PATH: 'public_data/shared_documents/test_writes',
+            LOCAL_STORAGE_KEY: 'focusThreshold',
+            DEFAULT_THRESHOLD: 50,
+            LOCK_TIMEOUT_MS: 5 * 60 * 1000, // 5 minutes
+            ITEMS_PER_PAGE: 20,
+            MODEL_URL: 'https://cdn.jsdelivr.net/gh/justadudewhohacks/face-api.js@0.22.2/weights'
+        };
+
+        document.title = `포커스 이슈 탐지기 - v${C.APP_VERSION}`;
+        document.getElementById('version-display').textContent = `v${C.APP_VERSION}`;
         
         // --- DOM References ---
         const connectionStatus = document.getElementById('connection-status');
@@ -199,31 +219,25 @@
         const keyFramesContainer = document.getElementById('key-frames-container');
         const exportCsvBtn = document.getElementById('export-csv-btn');
         const showUploadTestBtn = document.getElementById('show-upload-test-btn');
-        // Test Modal
         const uploadTestModalOverlay = document.getElementById('upload-test-modal-overlay');
         const closeTestModalBtn = document.getElementById('close-test-modal-btn');
         const testFileInput = document.getElementById('test-file-input');
         const startStorageTestBtn = document.getElementById('start-storage-test-btn');
         const startFirestoreTestBtn = document.getElementById('start-firestore-test-btn');
-        // Review Modal
         const reviewModalOverlay = document.getElementById('review-modal-overlay');
         const reviewFramesList = document.getElementById('review-frames-list');
         const closeReviewModalBtn = document.getElementById('close-review-modal-btn');
         const reviewCancelBtn = document.getElementById('review-cancel-btn');
         const reviewConfirmBtn = document.getElementById('review-confirm-btn');
 
-
         // --- Global State ---
         let videoFiles = [];
         let modelsLoaded = false;
-        const MODEL_URL = 'https://cdn.jsdelivr.net/gh/justadudewhohacks/face-api.js@0.22.2/weights';
         let allAnalysisData = [];
         let detailChart = null;
         let currentPage = 1;
-        const ITEMS_PER_PAGE = 20;
-        let analysisController = null; // To control cancellation
+        let analysisController = null;
         let currentLockedDocId = null;
-        const LOCK_TIMEOUT_MS = 5 * 60 * 1000; // 5 minutes
 
         // --- Firebase State ---
         let app, auth, db, storage;
@@ -240,7 +254,7 @@
             logContainer.scrollTop = logContainer.scrollHeight;
         }
 
-        function appendImageLog(data) {
+        async function appendImageLog(data) {
             const logEntry = document.createElement('div');
             logEntry.className = 'p-2 my-2 border border-gray-700 rounded-md';
             const sharpScoreText = data.sharpScore !== null ? data.sharpScore.toFixed(2) : 'N/A';
@@ -303,11 +317,10 @@
             if (!reviewModalResolve) return;
 
             if (!confirmed) {
-                reviewModalResolve(null); // Cancelled
+                reviewModalResolve(null);
             } else {
                 const selectedIndices = [];
-                const frameElements = reviewFramesList.querySelectorAll('.review-frame-item');
-                frameElements.forEach(el => {
+                reviewFramesList.querySelectorAll('.review-frame-item').forEach(el => {
                     const checkbox = el.querySelector('input[type="checkbox"]');
                     if (checkbox.checked) {
                         selectedIndices.push(parseInt(el.dataset.frameIndex, 10));
@@ -318,7 +331,7 @@
             reviewModalResolve = null;
         }
 
-        function showReviewModal(keyFrames) {
+        async function showReviewModal(keyFrames) {
             reviewFramesList.innerHTML = ''; // Clear previous content
             keyFrames.forEach((frame, index) => {
                 const item = document.createElement('div');
@@ -352,7 +365,7 @@
         // --- Locking Mechanism ---
         async function releaseLock(docId) {
             if (!docId) return;
-            const docRef = doc(db, `public_data/shared_documents/analyses`, docId);
+            const docRef = doc(db, C.FIREBASE_COLLECTION, docId);
             try {
                 await updateDoc(docRef, { lock: null });
                 appendLog(`잠금 해제: ${docId}`, 'text-gray-500');
@@ -415,8 +428,8 @@
                 analyzeButton.disabled = true;
             }
 
-            const savedThreshold = localStorage.getItem('focusThreshold') || '50';
-            updateThreshold(savedThreshold, false); // Don't save on initial load
+            const savedThreshold = localStorage.getItem(C.LOCAL_STORAGE_KEY) || C.DEFAULT_THRESHOLD;
+            updateThreshold(savedThreshold, false);
 
             await loadFaceApiModels();
         }
@@ -424,8 +437,7 @@
         async function loadFaceApiModels() {
             if (modelsLoaded) return;
             try {
-                // Use the more accurate SsdMobilenetv1 model
-                await faceapi.nets.ssdMobilenetv1.loadFromUri(MODEL_URL);
+                await faceapi.nets.ssdMobilenetv1.loadFromUri(C.MODEL_URL);
                 modelsLoaded = true;
                 modelStatus.textContent = '얼굴 인식 모델 로딩 완료!';
                 modelStatus.className = 'text-sm text-green-600 mt-1';
@@ -437,11 +449,12 @@
         }
         
         function listenForDataChanges() {
-            const analysesColPath = `public_data/shared_documents/analyses`;
-            unsubscribeFromAnalyses = onSnapshot(collection(db, analysesColPath), (snapshot) => {
+            unsubscribeFromAnalyses = onSnapshot(collection(db, C.FIREBASE_COLLECTION), (snapshot) => {
+                const scrollTop = resultsListContainer.scrollTop; // Save scroll position
                 allAnalysisData = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
                 allAnalysisData.sort((a, b) => (b.timestamp?.seconds ?? 0) - (a.timestamp?.seconds ?? 0));
                 renderAnalysisResultsList();
+                resultsListContainer.scrollTop = scrollTop; // Restore scroll position
             }, (error) => {
                 appendLog(`DB 데이터 수신 오류: ${error.code} - ${error.message}`, 'text-red-500');
             });
@@ -451,7 +464,6 @@
             analyzeButton.disabled = videoFiles.length === 0 || !modelsLoaded; 
         }
 
-        // --- Helper Function to convert Data URL to Blob ---
         function dataURLtoBlob(dataurl) {
             if (!dataurl) return null;
             const arr = dataurl.split(','), mime = arr[0].match(/:(.*?);/)[1];
@@ -488,13 +500,6 @@
             return variance;
         }
 
-        /**
-         * Selects the best face from detections based on size and centrality.
-         * @param {Array} detections - Array of face detections from face-api.
-         * @param {number} videoWidth - The width of the video frame.
-         * @param {number} videoHeight - The height of the video frame.
-         * @returns {object|null} The best face detection object or null.
-         */
         function getBestFace(detections, videoWidth, videoHeight) {
             if (!detections || detections.length === 0) return null;
             if (detections.length === 1) return detections[0];
@@ -513,7 +518,6 @@
 
             const maxArea = Math.max(...scoredDetections.map(d => d.area));
             const maxDistance = Math.max(...scoredDetections.map(d => d.distance));
-
             const safeMaxArea = maxArea === 0 ? 1 : maxArea;
             const safeMaxDistance = maxDistance === 0 ? 1 : maxDistance;
 
@@ -523,19 +527,15 @@
             for (const item of scoredDetections) {
                 const sizeScore = item.area / safeMaxArea;
                 const distanceScore = 1 - (item.distance / safeMaxDistance);
-
-                // Weights: 60% for size, 40% for centrality
                 const finalScore = (sizeScore * 0.6) + (distanceScore * 0.4);
-
                 if (finalScore > maxScore) {
                     maxScore = finalScore;
                     bestDetection = item.detection;
                 }
             }
-            
             return bestDetection;
         }
-
+        
         function getCroppedFaceDataURL(canvas, box) {
             if (!box) return null;
             const { x, y, width, height } = box;
@@ -558,10 +558,10 @@
                 return;
             }
 
-            const totalPages = Math.ceil(allAnalysisData.length / ITEMS_PER_PAGE);
+            const totalPages = Math.ceil(allAnalysisData.length / C.ITEMS_PER_PAGE);
             currentPage = Math.min(currentPage, totalPages);
-            const startIndex = (currentPage - 1) * ITEMS_PER_PAGE;
-            const paginatedData = allAnalysisData.slice(startIndex, startIndex + ITEMS_PER_PAGE);
+            const startIndex = (currentPage - 1) * C.ITEMS_PER_PAGE;
+            const paginatedData = allAnalysisData.slice(startIndex, startIndex + C.ITEMS_PER_PAGE);
 
             paginatedData.forEach((data) => {
                 const item = document.createElement('div');
@@ -569,14 +569,14 @@
                 const problemCount = (data.keyFrames || []).filter(kf => kf.manualOverride !== 'ok').length;
                 
                 const lock = data.lock;
-                const isStale = lock && lock.lockedAt && (Date.now() - lock.lockedAt.toDate().getTime()) > LOCK_TIMEOUT_MS;
+                const isStale = lock && lock.lockedAt && (Date.now() - lock.lockedAt.toDate().getTime()) > C.LOCK_TIMEOUT_MS;
                 const isLocked = lock && !isStale;
                 const isLockedByCurrentUser = isLocked && lock.lockedBy === auth.currentUser.uid;
                 const isLockedByOther = isLocked && !isLockedByCurrentUser;
 
                 item.className = `result-item p-3 border-b flex justify-between items-center transition-colors duration-200`;
                 if (isLockedByOther) item.classList.add('locked');
-                if (isLockedByCurrentUser) item.classList.add('selected');
+                if (isLockedByCurrentUser || data.id === currentLockedDocId) item.classList.add('selected');
 
                 item.dataset.analysisId = data.id;
 
@@ -606,7 +606,7 @@
                 resultsListContainer.appendChild(item);
             });
 
-            renderPagination(Math.ceil(allAnalysisData.length / ITEMS_PER_PAGE));
+            renderPagination(Math.ceil(allAnalysisData.length / C.ITEMS_PER_PAGE));
         }
 
         resultsListContainer.addEventListener('click', async (e) => {
@@ -626,21 +626,19 @@
                 return;
             }
 
-            if (analysisId === currentLockedDocId) return; // Already selected
+            if (analysisId === currentLockedDocId) return;
 
             await releaseCurrentLock();
             
-            const docRef = doc(db, `public_data/shared_documents/analyses`, analysisId);
+            const docRef = doc(db, C.FIREBASE_COLLECTION, analysisId);
             try {
                 await runTransaction(db, async (transaction) => {
                     const sfDoc = await transaction.get(docRef);
-                    if (!sfDoc.exists()) {
-                        throw "Document does not exist!";
-                    }
+                    if (!sfDoc.exists()) throw "Document does not exist!";
 
                     const data = sfDoc.data();
                     const lock = data.lock;
-                    const isStale = lock && lock.lockedAt && (Date.now() - lock.lockedAt.toDate().getTime()) > LOCK_TIMEOUT_MS;
+                    const isStale = lock && lock.lockedAt && (Date.now() - lock.lockedAt.toDate().getTime()) > C.LOCK_TIMEOUT_MS;
                     
                     if (lock && !isStale && lock.lockedBy !== auth.currentUser.uid) {
                         throw new Error("다른 사용자가 방금 이 항목을 잠갔습니다.");
@@ -693,10 +691,13 @@
         }
 
         function renderDetailedViewContent(analysisId) {
-            detailsSection.classList.remove('hidden');
             const resultData = allAnalysisData.find(d => d.id === analysisId);
-            if (!resultData) return;
-            detailsTitle.textContent = `상세 분석: ${resultData.fileName}`;
+            if (!resultData) {
+                detailsSection.classList.add('hidden');
+                return;
+            };
+            detailsSection.classList.remove('hidden');
+            detailsTitle.querySelector('span').textContent = `3. 상세 분석: ${resultData.fileName}`;
 
             if (detailChart) { detailChart.destroy(); }
             
@@ -792,7 +793,7 @@
         }
 
         async function handleManualCorrection(analysisId, time, action) {
-            const docRef = doc(db, `public_data/shared_documents/analyses`, analysisId);
+            const docRef = doc(db, C.FIREBASE_COLLECTION, analysisId);
             const docData = allAnalysisData.find(d => d.id === analysisId);
             if (!docData) return;
 
@@ -826,7 +827,7 @@
                 const deletePromises = urlsToDelete.map(url => deleteObject(ref(storage, url)));
                 await Promise.all(deletePromises);
 
-                await deleteDoc(doc(db, `public_data/shared_documents/analyses`, analysisId));
+                await deleteDoc(doc(db, C.FIREBASE_COLLECTION, analysisId));
                 
                 if (detailChartCanvas.dataset.analysisId === analysisId) {
                     detailsSection.classList.add('hidden');
@@ -844,14 +845,13 @@
             const max = parseInt(thresholdSlider.max, 10);
             let clampedValue = parseInt(value, 10);
 
-            if (isNaN(clampedValue)) clampedValue = 50;
-
+            if (isNaN(clampedValue)) clampedValue = C.DEFAULT_THRESHOLD;
             clampedValue = Math.max(min, Math.min(max, clampedValue));
 
             thresholdSlider.value = clampedValue;
             thresholdValueEl.textContent = clampedValue;
             if (save) {
-                localStorage.setItem('focusThreshold', clampedValue);
+                localStorage.setItem(C.LOCAL_STORAGE_KEY, clampedValue);
             }
         }
 
@@ -873,7 +873,7 @@
 
         async function uploadWithProgress(storageRef, blob, signal) {
             return new Promise((resolve, reject) => {
-                if (!blob) return resolve(null); // Resolve with null if blob is null
+                if (!blob) return resolve(null);
                 
                 const uploadTask = uploadBytesResumable(storageRef, blob);
 
@@ -954,10 +954,7 @@
                         const detections = await faceapi.detectAllFaces(analysisVideo, new faceapi.SsdMobilenetv1Options({ minConfidence: 0.5 }));
                         const bestFace = getBestFace(detections, analysisVideo.videoWidth, analysisVideo.videoHeight);
                         
-                        let currentStatus = '미검출';
-                        let currentCroppedFace = null;
-                        let currentDetectionBox = null;
-                        let currentScore = null;
+                        let currentStatus = '미검출', currentCroppedFace = null, currentDetectionBox = null, currentScore = null;
 
                         if (bestFace) {
                             const { x, y, width, height } = bestFace.box;
@@ -973,14 +970,10 @@
                              const blurryFullFrame = analysisCanvas.toDataURL('image/jpeg', 0.8);
                              const data = {
                                 time: currentTime,
-                                sharpFull: previousFrameState.fullFrameData,
-                                sharpCropped: previousFrameState.croppedFaceData,
-                                sharpBox: previousFrameState.detectionBox,
-                                sharpScore: previousFrameState.score,
-                                blurryFull: blurryFullFrame,
-                                blurryCropped: currentCroppedFace,
-                                blurryBox: currentDetectionBox,
-                                blurryScore: currentScore
+                                sharpFull: previousFrameState.fullFrameData, sharpCropped: previousFrameState.croppedFaceData,
+                                sharpBox: previousFrameState.detectionBox, sharpScore: previousFrameState.score,
+                                blurryFull: blurryFullFrame, blurryCropped: currentCroppedFace,
+                                blurryBox: currentDetectionBox, blurryScore: currentScore
                             };
                             appendImageLog(data);
                             keyFramesData.push(data);
@@ -1006,7 +999,7 @@
                             selectedFrameIndices = await showReviewModal(keyFramesData);
                         } else {
                             appendLog('자동 검토 모드로 모든 문제 프레임을 업로드합니다.', 'text-blue-400');
-                            selectedFrameIndices = keyFramesData.map((_, index) => index); // Select all frames
+                            selectedFrameIndices = keyFramesData.map((_, index) => index);
                         }
 
                         if (selectedFrameIndices === null) {
@@ -1031,10 +1024,10 @@
                                 };
 
                                 const refs = {
-                                    sharpFull: ref(storage, `public_assets/${timestamp}_sharp_full.jpeg`),
-                                    sharpCropped: ref(storage, `public_assets/${timestamp}_sharp_crop.jpeg`),
-                                    blurryFull: ref(storage, `public_assets/${timestamp}_blurry_full.jpeg`),
-                                    blurryCropped: ref(storage, `public_assets/${timestamp}_blurry_crop.jpeg`)
+                                    sharpFull: ref(storage, `${C.STORAGE_PATH}/${timestamp}_sharp_full.jpeg`),
+                                    sharpCropped: ref(storage, `${C.STORAGE_PATH}/${timestamp}_sharp_crop.jpeg`),
+                                    blurryFull: ref(storage, `${C.STORAGE_PATH}/${timestamp}_blurry_full.jpeg`),
+                                    blurryCropped: ref(storage, `${C.STORAGE_PATH}/${timestamp}_blurry_crop.jpeg`)
                                 };
 
                                 const progressBase = k * 4;
@@ -1058,7 +1051,7 @@
                                 });
                             }
                         } else {
-                             appendLog('업로드할 프레임이 선택되지 않았습니다.', 'text-yellow-500');
+                            appendLog('업로드할 프레임이 선택되지 않았습니다.', 'text-yellow-500');
                         }
                     }
 
@@ -1068,12 +1061,20 @@
                     const newAnalysis = {
                         fileName: file.name, timestamp: serverTimestamp(), avgScore,
                         problematic: uploadedKeyFrames.length > 0, frameScores, keyFrames: uploadedKeyFrames,
-                        lock: null // Initialize lock field
+                        lock: null
                     };
 
-                    await addDoc(collection(db, `public_data/shared_documents/analyses`), newAnalysis);
+                    const docRef = await addDoc(collection(db, C.FIREBASE_COLLECTION), newAnalysis);
                     appendLog(`'${file.name}' 분석 완료 및 결과 저장.`, 'text-green-500');
                     URL.revokeObjectURL(fileURL);
+
+                     // Auto-select the new item
+                    setTimeout(async () => {
+                        await releaseCurrentLock();
+                        currentLockedDocId = docRef.id;
+                        renderAnalysisResultsList(); // Re-render to show the new item selected
+                        renderDetailedViewContent(docRef.id);
+                    }, 500);
                 }
             } catch (error) {
                 if (error.code === 'storage/canceled' || (error.message && (error.message.includes('canceled') || error.message.includes('중단')))) {
@@ -1097,109 +1098,48 @@
             }
         });
 
-        // Upload Test Modal Logic
-        showUploadTestBtn.addEventListener('click', () => {
-            uploadTestModalOverlay.classList.remove('hidden');
-        });
-        closeTestModalBtn.addEventListener('click', () => {
-            uploadTestModalOverlay.classList.add('hidden');
-        });
+        // --- Test Modal Logic ---
+        showUploadTestBtn.addEventListener('click', () => uploadTestModalOverlay.classList.remove('hidden'));
+        closeTestModalBtn.addEventListener('click', () => uploadTestModalOverlay.classList.add('hidden'));
         uploadTestModalOverlay.addEventListener('click', (e) => {
-            if (e.target === uploadTestModalOverlay) {
-                uploadTestModalOverlay.classList.add('hidden');
-            }
+            if (e.target === uploadTestModalOverlay) uploadTestModalOverlay.classList.add('hidden');
         });
 
         startStorageTestBtn.addEventListener('click', async () => {
             const file = testFileInput.files[0];
             const user = auth.currentUser;
-            let heartbeatInterval;
-            
             appendLog('[CLIENT] Storage 테스트 시작...', 'text-purple-400');
+            if (!file) { appendLog('[CLIENT] 파일이 선택되지 않았습니다.', 'text-red-400'); return; }
+            if (!user) { appendLog('[CLIENT] 인증 정보가 없습니다. 잠시 후 다시 시도하세요.', 'text-red-400'); return; }
             
-            if (!file) {
-                appendLog('[CLIENT] 파일이 선택되지 않았습니다.', 'text-red-400');
-                return;
-            }
-            appendLog(`[CLIENT] 선택된 파일: ${file.name} (${(file.size / 1024).toFixed(2)} KB)`, 'text-purple-400');
-
-            if (!user) {
-                appendLog('[CLIENT] 인증 정보가 없습니다. 잠시 후 다시 시도하세요.', 'text-red-400');
-                return;
-            }
-            appendLog(`[CLIENT] 현재 사용자 UID: ${user.uid}`, 'text-purple-400');
-
-            const storagePath = `public_assets/test-uploads/${Date.now()}_${file.name}`;
+            const storagePath = `${C.TEST_STORAGE_PATH}/${Date.now()}_${file.name}`;
             const storageRef = ref(storage, storagePath);
-            appendLog(`[CLIENT] 업로드 경로 생성: ${storageRef.toString()}`, 'text-purple-400');
-            
-            appendLog('[CLIENT] uploadBytesResumable 함수 호출 시작...', 'text-purple-400');
             const uploadTask = uploadBytesResumable(storageRef, file);
-            appendLog('[CLIENT] uploadBytesResumable 함수 호출 완료. UploadTask 객체 생성됨.', 'text-purple-400');
 
-            let firstResponseReceived = false;
-            let timeoutId = setTimeout(() => {
-                if (!firstResponseReceived) {
-                    uploadTask.cancel();
-                    appendLog('[SERVER] 오류: 30초 응답 시간 초과. 서버로부터 어떠한 응답도 받지 못했습니다.', 'text-red-500');
-                    clearInterval(heartbeatInterval);
-                }
-            }, 30000);
-
-            heartbeatInterval = setInterval(() => {
-                appendLog('[HEARTBEAT] UI 스레드 활성', 'text-gray-500');
-            }, 500);
-
-            appendLog('[CLIENT] state_changed 이벤트 리스너 설정 시작...', 'text-purple-400');
             uploadTask.on('state_changed',
-                (snapshot) => {
-                    if (!firstResponseReceived) {
-                        firstResponseReceived = true;
-                        clearTimeout(timeoutId);
-                        appendLog('[SERVER] 첫 통신 성공. 업로드 등록 완료.', 'text-green-500', 'SERVER');
-                    }
-                    const progress = (snapshot.bytesTransferred / snapshot.totalBytes) * 100;
-                    appendLog(`[SERVER] 진행률: ${Math.round(progress)}%`, 'text-green-500', 'SERVER');
-                },
-                (error) => {
-                    clearTimeout(timeoutId);
-                    clearInterval(heartbeatInterval);
-                    appendLog(`[SERVER] Storage 업로드 실패: ${error.code}`, 'text-red-500', 'SERVER');
-                    console.error("Test Upload Error:", error.stack);
-                },
+                (snapshot) => { appendLog(`[SERVER] 진행률: ${Math.round((snapshot.bytesTransferred / snapshot.totalBytes) * 100)}%`, 'text-green-500', 'SERVER'); },
+                (error) => { appendLog(`[SERVER] Storage 업로드 실패: ${error.code}`, 'text-red-500', 'SERVER'); },
                 async () => {
-                    clearTimeout(timeoutId);
-                    clearInterval(heartbeatInterval);
                     const downloadURL = await getDownloadURL(uploadTask.snapshot.ref);
                     appendLog('[SERVER] Storage 업로드 성공!', 'text-green-500', 'SERVER');
                     appendLog(`[SERVER] URL: ${downloadURL}`, 'text-blue-400', 'SERVER');
                 }
             );
-            appendLog('[CLIENT] state_changed 이벤트 리스너 설정 완료. 서버 응답 대기 중...', 'text-purple-400');
         });
 
         startFirestoreTestBtn.addEventListener('click', async () => {
             appendLog('[CLIENT] Firestore 테스트 시작...', 'text-yellow-400');
-            if (!auth.currentUser) {
-                appendLog('[CLIENT] 인증 정보가 없습니다. 잠시 후 다시 시도하세요.', 'text-red-400');
-                return;
-            }
-             appendLog(`[CLIENT] 현재 사용자 UID: ${auth.currentUser.uid}`, 'text-purple-400');
-
-            const testDocPath = `public_data/shared_documents/test_writes`;
-            appendLog(`[CLIENT] Firestore 쓰기 시도: ${testDocPath}`, 'text-purple-400');
+            if (!auth.currentUser) { appendLog('[CLIENT] 인증 정보가 없습니다.', 'text-red-400'); return; }
             try {
-                const docRef = await addDoc(collection(db, testDocPath), {
+                const docRef = await addDoc(collection(db, C.TEST_FIRESTORE_PATH), {
                     message: "Firestore write test successful!",
                     timestamp: serverTimestamp()
                 });
                 appendLog(`[SERVER] Firestore 쓰기 성공! (문서 ID: ${docRef.id})`, 'text-green-500', 'SERVER');
             } catch (error) {
                 appendLog(`[SERVER] Firestore 쓰기 실패: ${error.code}`, 'text-red-500', 'SERVER');
-                console.error("Test Firestore Write Error:", error.stack);
             }
         });
-
 
         window.onload = startApp;
 
