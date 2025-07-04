@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>포커스 이슈 탐지기 - v2.5 (개선안 적용)</title>
+    <title>포커스 이슈 탐지기 - v2.8 (카테고리 입력 기능)</title>
     <script src="https://cdn.tailwindcss.com"></script>
     <link href="https://fonts.googleapis.com/css2?family=Noto+Sans+KR:wght@400;500;700&display=swap" rel="stylesheet">
     <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
@@ -19,6 +19,7 @@
         #custom-modal-overlay, #upload-test-modal-overlay, #review-modal-overlay { background-color: rgba(0, 0, 0, 0.5); }
         .nav-link { transition: all 0.2s ease-in-out; }
         .nav-link:hover { color: #2563eb; transform: translateY(-2px); }
+        .filter-select { -webkit-appearance: none; -moz-appearance: none; appearance: none; background-image: url("data:image/svg+xml,%3csvg xmlns='http://www.w3.org/2000/svg' fill='none' viewBox='0 0 20 20'%3e%3cpath stroke='%236b7280' stroke-linecap='round' stroke-linejoin='round' stroke-width='1.5' d='M6 8l4 4 4-4'/%3e%3c/svg%3e"); background-position: right 0.5rem center; background-repeat: no-repeat; background-size: 1.5em 1.5em; padding-right: 2.5rem; }
     </style>
 </head>
 <body class="bg-gray-100 text-gray-800">
@@ -51,20 +52,41 @@
             <!-- Control Panel -->
             <div id="control-panel-section" class="bg-white p-6 rounded-2xl shadow-lg">
                 <h2 class="text-xl font-semibold mb-4 border-b pb-2">1. 제어 패널</h2>
-                <div class="grid grid-cols-1 md:grid-cols-2 gap-6 items-center">
-                    <div>
-                        <label for="video-files-input" class="block text-sm font-medium text-gray-700 mb-1">영상 파일 선택</label>
-                        <input type="file" id="video-files-input" multiple accept="video/mp4,video/quicktime,.mov" class="block w-full text-sm text-gray-500 file:mr-4 file:py-2 file:px-4 file:rounded-full file:border-0 file:text-sm file:font-semibold file:bg-blue-50 file:text-blue-700 hover:file:bg-blue-100 cursor-pointer"/>
-                    </div>
-                     <div class="space-y-2">
-                        <label for="threshold-slider" class="block text-sm font-medium text-gray-700">흐림 기준값 (낮을수록 민감)</label>
-                        <div class="flex items-center gap-2">
-                            <input type="range" id="threshold-slider" min="0" max="200" value="50" class="w-full h-2 bg-gray-200 rounded-lg appearance-none cursor-pointer">
-                            <span id="threshold-value" contenteditable="true" class="font-bold text-lg text-blue-600 w-16 text-center cursor-text focus:outline-none focus:ring-2 focus:ring-blue-500 rounded-md px-1">50</span>
+                <div class="grid grid-cols-1 md:grid-cols-2 gap-6 items-start">
+                    <div class="space-y-6">
+                        <div>
+                            <label for="video-files-input" class="block text-sm font-medium text-gray-700 mb-1">영상 파일 선택</label>
+                            <input type="file" id="video-files-input" multiple accept="video/mp4,video/quicktime,.mov" class="block w-full text-sm text-gray-500 file:mr-4 file:py-2 file:px-4 file:rounded-full file:border-0 file:text-sm file:font-semibold file:bg-blue-50 file:text-blue-700 hover:file:bg-blue-100 cursor-pointer"/>
+                        </div>
+                         <div class="space-y-2">
+                            <label for="threshold-slider" class="block text-sm font-medium text-gray-700">흐림 기준값 (낮을수록 민감)</label>
+                            <div class="flex items-center gap-2">
+                                <input type="range" id="threshold-slider" min="0" max="200" value="50" class="w-full h-2 bg-gray-200 rounded-lg appearance-none cursor-pointer">
+                                <span id="threshold-value" contenteditable="true" class="font-bold text-lg text-blue-600 w-16 text-center cursor-text focus:outline-none focus:ring-2 focus:ring-blue-500 rounded-md px-1">50</span>
+                            </div>
                         </div>
                     </div>
+                    <!-- Category Inputs -->
+                    <div class="space-y-4 p-4 bg-gray-50 rounded-lg border">
+                        <h3 class="text-md font-semibold text-gray-800">분석 정보 입력</h3>
+                        <div class="grid grid-cols-1 sm:grid-cols-3 gap-4">
+                            <div>
+                                <label for="year-input" class="block text-sm font-medium text-gray-700">연도</label>
+                                <input type="number" id="year-input" class="mt-1 block w-full border-gray-300 rounded-md shadow-sm focus:ring-indigo-500 focus:border-indigo-500 sm:text-sm">
+                            </div>
+                            <div>
+                                <label for="event-type-input" class="block text-sm font-medium text-gray-700">이벤트 종류</label>
+                                <input type="text" id="event-type-input" class="mt-1 block w-full border-gray-300 rounded-md shadow-sm focus:ring-indigo-500 focus:border-indigo-500 sm:text-sm">
+                            </div>
+                             <div>
+                                <label for="day-input" class="block text-sm font-medium text-gray-700">데이</label>
+                                <input type="text" id="day-input" class="mt-1 block w-full border-gray-300 rounded-md shadow-sm focus:ring-indigo-500 focus:border-indigo-500 sm:text-sm">
+                            </div>
+                        </div>
+                         <p class="text-xs text-gray-500">'테이블' 정보는 파일명(ONYX, DTD, LUXON)에 따라 자동으로 분류됩니다.</p>
+                    </div>
                 </div>
-                <div class="mt-4">
+                <div class="mt-6">
                     <label for="review-before-upload-checkbox" class="flex items-center text-sm font-medium text-gray-700 cursor-pointer">
                         <input type="checkbox" id="review-before-upload-checkbox" class="h-4 w-4 text-blue-600 border-gray-300 rounded focus:ring-blue-500" checked>
                         <span class="ml-2">업로드 전 검토하기</span>
@@ -77,7 +99,6 @@
                     <div id="loading-indicator" class="hidden mt-4 flex flex-col items-center">
                         <div class="flex items-center justify-center space-x-4">
                             <div class="loader"></div>
-                            <!-- Suggestion 1: Analysis Preview Canvas -->
                             <canvas id="preview-canvas" width="240" height="135" class="hidden bg-gray-200 rounded-md shadow-inner"></canvas>
                         </div>
                         <p id="progress-text" class="text-gray-600 mt-2"></p>
@@ -96,6 +117,25 @@
             <!-- Analysis History -->
             <div id="history-section" class="bg-white p-6 rounded-2xl shadow-lg">
                  <h2 class="text-xl font-semibold mb-4 border-b pb-2">2. 분석 기록</h2>
+                 <!-- Filter Controls -->
+                 <div id="filter-controls" class="grid grid-cols-2 md:grid-cols-4 gap-4 mb-4 p-4 bg-gray-50 rounded-lg border">
+                    <div>
+                        <label for="year-filter" class="block text-sm font-medium text-gray-700">연도</label>
+                        <select id="year-filter" class="filter-select mt-1 block w-full pl-3 pr-10 py-2 text-base border-gray-300 focus:outline-none focus:ring-indigo-500 focus:border-indigo-500 sm:text-sm rounded-md"></select>
+                    </div>
+                    <div>
+                        <label for="event-type-filter" class="block text-sm font-medium text-gray-700">이벤트 종류</label>
+                        <select id="event-type-filter" class="filter-select mt-1 block w-full pl-3 pr-10 py-2 text-base border-gray-300 focus:outline-none focus:ring-indigo-500 focus:border-indigo-500 sm:text-sm rounded-md"></select>
+                    </div>
+                    <div>
+                        <label for="day-filter" class="block text-sm font-medium text-gray-700">데이</label>
+                        <select id="day-filter" class="filter-select mt-1 block w-full pl-3 pr-10 py-2 text-base border-gray-300 focus:outline-none focus:ring-indigo-500 focus:border-indigo-500 sm:text-sm rounded-md"></select>
+                    </div>
+                    <div>
+                        <label for="table-filter" class="block text-sm font-medium text-gray-700">테이블</label>
+                        <select id="table-filter" class="filter-select mt-1 block w-full pl-3 pr-10 py-2 text-base border-gray-300 focus:outline-none focus:ring-indigo-500 focus:border-indigo-500 sm:text-sm rounded-md"></select>
+                    </div>
+                 </div>
                  <div id="results-list-container" class="space-y-1 max-h-[60vh] overflow-y-auto">
                      <p id="results-list-placeholder" class="text-gray-500 text-center py-4">인증이 완료되면 기록을 불러옵니다...</p>
                  </div>
@@ -185,7 +225,7 @@
 
         // --- Constants ---
         const C = {
-            APP_VERSION: "2.5",
+            APP_VERSION: "2.8",
             FIREBASE_COLLECTION: 'public_data/shared_documents/analyses',
             STORAGE_PATH: 'public_assets',
             TEST_STORAGE_PATH: 'public_assets/test-uploads',
@@ -234,8 +274,15 @@
         const closeReviewModalBtn = document.getElementById('close-review-modal-btn');
         const reviewCancelBtn = document.getElementById('review-cancel-btn');
         const reviewConfirmBtn = document.getElementById('review-confirm-btn');
-        const previewCanvas = document.getElementById('preview-canvas'); // Suggestion 1
-        const previewCtx = previewCanvas.getContext('2d'); // Suggestion 1
+        const previewCanvas = document.getElementById('preview-canvas');
+        const previewCtx = previewCanvas.getContext('2d');
+        const yearFilter = document.getElementById('year-filter');
+        const eventTypeFilter = document.getElementById('event-type-filter');
+        const dayFilter = document.getElementById('day-filter');
+        const tableFilter = document.getElementById('table-filter');
+        const yearInput = document.getElementById('year-input');
+        const eventTypeInput = document.getElementById('event-type-input');
+        const dayInput = document.getElementById('day-input');
 
         // --- Global State ---
         let videoFiles = [];
@@ -245,7 +292,8 @@
         let currentPage = 1;
         let analysisController = null;
         let currentLockedDocId = null;
-        let reviewModalObjectUrls = []; // Suggestion 4
+        let reviewModalObjectUrls = [];
+        let filtersApplied = false;
 
         // --- Firebase State ---
         let app, auth, db, storage;
@@ -289,11 +337,8 @@
         modalConfirmBtn.addEventListener('click', () => closeModal(true));
         modalOverlay.addEventListener('click', (e) => { if (e.target === modalOverlay) closeModal(false); });
 
-        // Suggestion 4: Memory Management Improvement
         function handleCloseReviewModal(confirmed) {
             reviewModalOverlay.classList.add('hidden');
-            
-            // Revoke all created object URLs to free up memory
             reviewModalObjectUrls.forEach(url => URL.revokeObjectURL(url));
             reviewModalObjectUrls = [];
 
@@ -314,10 +359,9 @@
             reviewModalResolve = null;
         }
 
-        // Suggestion 4: Memory Management Improvement
         async function showReviewModal(keyFrames) {
             reviewFramesList.innerHTML = ''; 
-            reviewModalObjectUrls = []; // Clear previous URLs
+            reviewModalObjectUrls = [];
 
             for (const frame of keyFrames) {
                 const item = document.createElement('div');
@@ -444,11 +488,44 @@
         
         function listenForDataChanges() {
             unsubscribeFromAnalyses = onSnapshot(collection(db, C.FIREBASE_COLLECTION), (snapshot) => {
-                const scrollTop = resultsListContainer.scrollTop;
-                allAnalysisData = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
+                const updatePromises = [];
+                const migratedData = snapshot.docs.map(docSnap => {
+                    const data = docSnap.data();
+                    const id = docSnap.id;
+                    if (!data.year || !data.table) {
+                        const fileName = data.fileName.toUpperCase();
+                        let table = '기타';
+                        if (fileName.includes('ONYX')) table = 'ONYX';
+                        else if (fileName.includes('DTD')) table = 'DTD';
+                        else if (fileName.includes('LUXON')) table = 'LUXON';
+
+                        const migrationData = {
+                            year: 2025,
+                            eventType: 'MAIN EVENT',
+                            day: 'DAY 2',
+                            table: table
+                        };
+                        
+                        updatePromises.push(updateDoc(doc(db, C.FIREBASE_COLLECTION, id), migrationData));
+                        return { id, ...data, ...migrationData };
+                    }
+                    return { id, ...data };
+                });
+
+                if (updatePromises.length > 0) {
+                    appendLog(`${updatePromises.length}개의 기록에 카테고리 정보를 추가합니다...`, 'text-blue-400');
+                    Promise.all(updatePromises)
+                        .then(() => appendLog('모든 기록이 최신 상태로 업데이트되었습니다.', 'text-green-500'))
+                        .catch(err => appendLog(`기록 업데이트 중 오류 발생: ${err.message}`, 'text-red-500'));
+                }
+
+                allAnalysisData = migratedData;
                 allAnalysisData.sort((a, b) => (b.timestamp?.seconds ?? 0) - (a.timestamp?.seconds ?? 0));
+                
+                populateFilters(allAnalysisData);
+                setDefaultCategoryInputs(allAnalysisData);
                 renderAnalysisResultsList();
-                resultsListContainer.scrollTop = scrollTop;
+
             }, (error) => {
                 appendLog(`DB 데이터 수신 오류: ${error.code} - ${error.message}`, 'text-red-500');
             });
@@ -541,21 +618,70 @@
             return tempCanvas.toDataURL('image/jpeg', 0.8);
         }
 
+        function populateFilters(data) {
+            const populate = (element, values) => {
+                const currentValue = element.value;
+                element.innerHTML = '<option value="all">전체</option>';
+                [...new Set(values)].sort().forEach(value => {
+                    const option = document.createElement('option');
+                    option.value = value;
+                    option.textContent = value;
+                    element.appendChild(option);
+                });
+                element.value = currentValue || 'all';
+            };
+
+            populate(yearFilter, data.map(item => item.year).filter(Boolean));
+            populate(eventTypeFilter, data.map(item => item.eventType).filter(Boolean));
+            populate(dayFilter, data.map(item => item.day).filter(Boolean));
+            populate(tableFilter, data.map(item => item.table).filter(Boolean));
+        }
+
+        function setDefaultCategoryInputs(data) {
+            if (data.length > 0) {
+                const latestEntry = data[0]; // Assuming data is sorted by timestamp desc
+                yearInput.value = latestEntry.year || new Date().getFullYear();
+                eventTypeInput.value = latestEntry.eventType || 'MAIN EVENT';
+                dayInput.value = latestEntry.day || 'DAY 2';
+            } else {
+                yearInput.value = new Date().getFullYear();
+                eventTypeInput.value = 'MAIN EVENT';
+                dayInput.value = 'DAY 2';
+            }
+        }
+
         function renderAnalysisResultsList() {
             resultsListPlaceholder.classList.add('hidden');
             resultsListContainer.innerHTML = '';
             
-            if (allAnalysisData.length === 0) {
-                resultsListPlaceholder.textContent = '저장된 분석 기록이 없습니다.';
+            let filteredData = allAnalysisData;
+
+            if (filtersApplied) {
+                const yf = yearFilter.value;
+                const etf = eventTypeFilter.value;
+                const df = dayFilter.value;
+                const tf = tableFilter.value;
+
+                filteredData = allAnalysisData.filter(item => {
+                    const yearMatch = yf === 'all' || item.year == yf;
+                    const eventTypeMatch = etf === 'all' || item.eventType === etf;
+                    const dayMatch = df === 'all' || item.day === df;
+                    const tableMatch = tf === 'all' || item.table === tf;
+                    return yearMatch && eventTypeMatch && dayMatch && tableMatch;
+                });
+            }
+
+            if (filteredData.length === 0) {
+                resultsListPlaceholder.textContent = '선택한 필터에 해당하는 기록이 없습니다.';
                 resultsListPlaceholder.classList.remove('hidden');
                 paginationControls.innerHTML = '';
                 return;
             }
 
-            const totalPages = Math.ceil(allAnalysisData.length / C.ITEMS_PER_PAGE);
+            const totalPages = Math.ceil(filteredData.length / C.ITEMS_PER_PAGE);
             currentPage = Math.min(currentPage, totalPages);
             const startIndex = (currentPage - 1) * C.ITEMS_PER_PAGE;
-            const paginatedData = allAnalysisData.slice(startIndex, startIndex + C.ITEMS_PER_PAGE);
+            const paginatedData = filteredData.slice(startIndex, startIndex + C.ITEMS_PER_PAGE);
 
             paginatedData.forEach((data) => {
                 const item = document.createElement('div');
@@ -590,6 +716,7 @@
                         </div>
                     </div>
                     <div class="flex items-center ml-2">
+                        <span class="inline-block bg-gray-200 text-gray-800 text-xs font-semibold mr-4 px-2.5 py-0.5 rounded-full">${data.table || 'N/A'}</span>
                         <div class="text-sm font-semibold ${problemCount > 0 ? 'text-red-500' : 'text-green-600'} w-28 text-right">문제 프레임: ${problemCount}개</div>
                         <button class="delete-analysis-button ml-4 text-gray-400 hover:text-red-600 p-2 rounded-full hover:bg-red-100 transition-colors">
                             <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" fill="currentColor" viewBox="0 0 16 16" class="pointer-events-none">
@@ -600,7 +727,7 @@
                 resultsListContainer.appendChild(item);
             });
 
-            renderPagination(Math.ceil(allAnalysisData.length / C.ITEMS_PER_PAGE));
+            renderPagination(totalPages, filteredData.length);
         }
 
         resultsListContainer.addEventListener('click', async (e) => {
@@ -656,9 +783,9 @@
             }
         });
         
-        function renderPagination(totalPages) {
+        function renderPagination(totalPages, totalItems) {
             paginationControls.innerHTML = '';
-            if (totalPages <= 1) return;
+            if (totalItems <= C.ITEMS_PER_PAGE) return;
             for (let i = 1; i <= totalPages; i++) {
                 const button = document.createElement('button');
                 button.textContent = i;
@@ -894,7 +1021,6 @@
             });
         }
         
-        // Suggestion 2: Refactoring
         function setUIForAnalysis(isAnalyzing) {
             if (isAnalyzing) {
                 loadingIndicator.style.display = 'flex';
@@ -919,7 +1045,6 @@
             }
         }
 
-        // Suggestion 2: Refactoring
         async function analyzeVideoFile(file, options) {
             const { threshold, signal, yieldToMain } = options;
             
@@ -928,7 +1053,6 @@
             const analysisCanvas = document.createElement('canvas');
             const analysisCtx = analysisCanvas.getContext('2d', { willReadFrequently: true });
             
-            // Suggestion 3: Performance Optimization
             const detectionCanvas = document.createElement('canvas');
             const detectionCtx = detectionCanvas.getContext('2d');
 
@@ -955,15 +1079,12 @@
                     analysisVideo.currentTime = currentTime;
                 });
 
-                // Draw to main canvas for high-res data
                 if (analysisCanvas.width !== analysisVideo.videoWidth) analysisCanvas.width = analysisVideo.videoWidth;
                 if (analysisCanvas.height !== analysisVideo.videoHeight) analysisCanvas.height = analysisVideo.videoHeight;
                 analysisCtx.drawImage(analysisVideo, 0, 0, analysisCanvas.width, analysisCanvas.height);
                 
-                // Suggestion 1: Update Preview Canvas
                 previewCtx.drawImage(analysisCanvas, 0, 0, previewCanvas.width, previewCanvas.height);
 
-                // Suggestion 3: Draw to smaller canvas for faster detection
                 const scale = C.DETECTION_CANVAS_WIDTH / analysisVideo.videoWidth;
                 detectionCanvas.width = C.DETECTION_CANVAS_WIDTH;
                 detectionCanvas.height = analysisVideo.videoHeight * scale;
@@ -1013,8 +1134,7 @@
             return { fileName: file.name, frameScores, keyFramesData };
         }
 
-        // Suggestion 2: Refactoring
-        async function uploadAndSaveResults(analysisResult, signal) {
+        async function uploadAndSaveResults(analysisResult, categoryInfo, signal) {
             const { fileName, frameScores, keyFramesData } = analysisResult;
             let uploadedKeyFrames = [];
 
@@ -1076,11 +1196,21 @@
 
             const totalScore = frameScores.reduce((sum, frame) => sum + frame.score, 0);
             const avgScore = frameScores.length > 0 ? totalScore / frameScores.length : 0;
+            
+            const upperFileName = fileName.toUpperCase();
+            let table = '기타';
+            if (upperFileName.includes('ONYX')) table = 'ONYX';
+            else if (upperFileName.includes('DTD')) table = 'DTD';
+            else if (upperFileName.includes('LUXON')) table = 'LUXON';
 
             const newAnalysis = {
                 fileName, timestamp: serverTimestamp(), avgScore,
                 problematic: uploadedKeyFrames.length > 0, frameScores, keyFrames: uploadedKeyFrames,
-                lock: null
+                lock: null,
+                year: categoryInfo.year, 
+                eventType: categoryInfo.eventType, 
+                day: categoryInfo.day, 
+                table: table
             };
 
             const docRef = await addDoc(collection(db, C.FIREBASE_COLLECTION), newAnalysis);
@@ -1100,6 +1230,11 @@
             const signal = analysisController.signal;
             const yieldToMain = () => new Promise(resolve => setTimeout(resolve, 0));
             const threshold = parseFloat(thresholdSlider.value);
+            const categoryInfo = {
+                year: parseInt(yearInput.value, 10) || new Date().getFullYear(),
+                eventType: eventTypeInput.value.trim() || 'N/A',
+                day: dayInput.value.trim() || 'N/A'
+            };
 
             try {
                 for (let i = 0; i < videoFiles.length; i++) {
@@ -1108,7 +1243,7 @@
                     const analysisResult = await analyzeVideoFile(file, {
                         threshold, signal, yieldToMain, fileIndex: i, totalFiles: videoFiles.length
                     });
-                    await uploadAndSaveResults(analysisResult, signal);
+                    await uploadAndSaveResults(analysisResult, categoryInfo, signal);
                 }
             } catch (error) {
                 if (error.code === 'storage/canceled' || (error.message && (error.message.includes('canceled') || error.message.includes('중단')))) {
@@ -1121,6 +1256,16 @@
                 setUIForAnalysis(false);
             }
         });
+
+        // --- Event Listeners for Filters ---
+        [yearFilter, eventTypeFilter, dayFilter, tableFilter].forEach(filter => {
+            filter.addEventListener('change', () => {
+                filtersApplied = true;
+                currentPage = 1;
+                renderAnalysisResultsList();
+            });
+        });
+
 
         // --- Test Modal Logic ---
         showUploadTestBtn.addEventListener('click', () => uploadTestModalOverlay.classList.remove('hidden'));
