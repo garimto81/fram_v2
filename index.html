@@ -3,1066 +3,1057 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>실시간 포커스 모니터 Ver 2.36 (패치 노트 추가)</title>
+    <title>포커스 이슈 탐지기 - v3.3 (모듈 임포트 오류 수정)</title>
     <script src="https://cdn.tailwindcss.com"></script>
     <link href="https://fonts.googleapis.com/css2?family=Noto+Sans+KR:wght@400;500;700&display=swap" rel="stylesheet">
-    <script src="https://cdnjs.cloudflare.com/ajax/libs/tone/14.7.77/Tone.js"></script>
-    <script src="https://cdn.jsdelivr.net/npm/idb@7/build/umd.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/face-api.js@0.22.2/dist/face-api.min.js"></script>
     <style>
-        body { font-family: 'Noto Sans KR', sans-serif; background-color: #111827; color: #f3f4f6; }
-        .camera-card { background-color: #1f2937; border: 2px solid #374151; }
-        .camera-card.alert { border-color: #ef4444; animation: pulse-red 1s infinite; }
-        @keyframes pulse-red { 0%, 100% { box-shadow: 0 0 0 0 rgba(239, 68, 68, 0.7); } 50% { box-shadow: 0 0 0 10px rgba(239, 68, 68, 0); } }
-        .overlay-canvas { position: absolute; top: 0; left: 0; width: 100%; height: 100%; pointer-events: none; }
-        input[type=number]::-webkit-inner-spin-button,
-        input[type=number]::-webkit-outer-spin-button { -webkit-appearance: none; margin: 0; }
-        input[type=number] { -moz-appearance: textfield; }
-        .control-group { background-color: #374151; padding: 0.75rem; border-radius: 0.5rem; }
-        .control-group label { font-weight: 500; }
-        .custom-modal-backdrop { display: none; position: fixed; inset: 0; background-color: rgba(0, 0, 0, 0.75); z-index: 50; align-items: center; justify-content: center; }
-        .custom-modal-content { background-color: #1f2937; padding: 1.5rem; border-radius: 0.5rem; box-shadow: 0 10px 15px -3px rgba(0, 0, 0, 0.1), 0 4px 6px -2px rgba(0, 0, 0, 0.05); width: 90%; max-width: 500px; }
+        body { font-family: 'Noto Sans KR', sans-serif; scroll-behavior: smooth; padding-top: 60px; }
+        .loader { border: 5px solid #f3f3f3; border-top: 5px solid #3498db; border-radius: 50%; width: 50px; height: 50px; animation: spin 1s linear infinite; }
+        @keyframes spin { 0% { transform: rotate(0deg); } 100% { transform: rotate(360deg); } }
+        .result-item:hover { background-color: #f0f9ff; cursor: pointer; }
+        .result-item.selected { background-color: #dbeafe; border-left: 4px solid #2563eb; }
+        .result-item.locked { background-color: #f1f5f9; opacity: 0.6; cursor: not-allowed; }
+        .result-item.locked:hover { background-color: #f1f5f9; }
+        #custom-modal-overlay, #upload-test-modal-overlay, #review-modal-overlay { background-color: rgba(0, 0, 0, 0.5); }
+        .nav-link { transition: all 0.2s ease-in-out; }
+        .nav-link:hover { color: #2563eb; transform: translateY(-2px); }
+        .filter-select { -webkit-appearance: none; -moz-appearance: none; appearance: none; background-image: url("data:image/svg+xml,%3csvg xmlns='http://www.w3.org/2000/svg' fill='none' viewBox='0 0 20 20'%3e%3cpath stroke='%236b7280' stroke-linecap='round' stroke-linejoin='round' stroke-width='1.5' d='M6 8l4 4 4-4'/%3e%3c/svg%3e"); background-position: right 0.5rem center; background-repeat: no-repeat; background-size: 1.5em 1.5em; padding-right: 2.5rem; }
+        .result-item.correction-completed { background-color: #f0fdf4; }
+        .result-item.correction-completed .file-name { text-decoration: line-through; color: #6b7280; }
+        .key-frame-item.highlighted { box-shadow: 0 0 0 3px rgba(59, 130, 246, 0.5); }
     </style>
 </head>
-<body class="antialiased">
+<body class="bg-gray-100 text-gray-800">
 
-    <div class="container mx-auto max-w-[1920px] p-4 md:p-8">
-        <header class="text-center mb-8">
-            <h1 class="text-3xl md:text-4xl font-bold text-white tracking-tight">
-                실시간 포커스 모니터 <span id="version-title" class="text-base align-middle text-gray-400 cursor-pointer hover:underline" title="패치 노트 보기">Ver 2.36</span>
+    <!-- HTML Body -->
+    <nav class="fixed top-0 left-0 right-0 bg-white/80 backdrop-blur-sm shadow-md z-40 h-[60px] flex items-center justify-center">
+        <div class="container mx-auto px-4 flex justify-between items-center">
+            <h1 class="text-xl md:text-2xl font-bold text-gray-900">
+                포커스 이슈 탐지기
+                <span id="version-display" class="text-sm align-middle text-blue-600 font-semibold"></span>
             </h1>
-            <p id="status-container" class="text-lg text-yellow-400 mt-2 flex items-center justify-center gap-2">
-                <svg id="loading-spinner" class="animate-spin h-5 w-5 text-white" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
-                    <circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle>
-                    <path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
-                </svg>
-                <span id="status-text">초기화 시작...</span>
-            </p>
+            <div class="hidden md:flex items-center space-x-6 font-semibold text-gray-600">
+                <a href="#control-panel-section" class="nav-link">1. 제어판</a>
+                <a href="#history-section" class="nav-link">2. 분석 기록</a>
+                <a href="#details-section" class="nav-link">3. 상세 분석</a>
+                <a href="#log-section" class="nav-link">4. 실시간 로그</a>
+            </div>
+            <div class="flex items-center">
+                <button id="show-upload-test-btn" class="text-sm bg-gray-500 text-white font-semibold py-1 px-3 rounded-full hover:bg-gray-600 transition">연결 테스트</button>
+            </div>
+        </div>
+    </nav>
+
+    <div class="container mx-auto p-4 md:p-8 max-w-7xl">
+        <header class="text-center mb-8 py-4">
+            <p id="connection-status" class="text-sm text-gray-500 mt-1">연결 상태: 확인 중...</p>
+            <p id="model-status" class="text-sm text-yellow-600 mt-1">인식 모델 로딩 중...</p>
         </header>
-
-        <!-- Controls Panel -->
-        <div class="bg-gray-800 p-4 rounded-xl shadow-lg mb-8 grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
-            <div class="control-group space-y-3">
-                <p class="font-bold text-white">초점 기준</p>
-                <div class="flex items-center gap-2">
-                    <input id="auto-threshold-checkbox" type="checkbox" class="h-4 w-4 rounded border-gray-300 text-indigo-600 focus:ring-indigo-500">
-                    <label for="auto-threshold-checkbox">자동 기준 사용</label>
-                </div>
-                <div id="manual-threshold-group" class="space-y-2">
-                    <label for="threshold-slider">수동 기준 점수:</label>
-                    <div class="flex items-center gap-2">
-                        <input type="range" id="threshold-slider" min="10" max="150" value="40" class="w-full h-2 bg-gray-600 rounded-lg appearance-none cursor-pointer">
-                        <input type="number" id="threshold-input" min="10" max="150" value="40" class="font-bold text-lg w-20 text-center bg-gray-700 rounded-md border-gray-600">
+        
+        <main class="space-y-8">
+            <!-- Control Panel -->
+            <div id="control-panel-section" class="bg-white p-6 rounded-2xl shadow-lg">
+                <h2 class="text-xl font-semibold mb-4 border-b pb-2">1. 제어 패널</h2>
+                <div class="grid grid-cols-1 md:grid-cols-2 gap-6 items-start">
+                    <div class="space-y-6">
+                        <div>
+                            <label for="video-files-input" class="block text-sm font-medium text-gray-700 mb-1">영상 파일 선택</label>
+                            <input type="file" id="video-files-input" multiple accept="video/mp4,video/quicktime,.mov" class="block w-full text-sm text-gray-500 file:mr-4 file:py-2 file:px-4 file:rounded-full file:border-0 file:text-sm file:font-semibold file:bg-blue-50 file:text-blue-700 hover:file:bg-blue-100 cursor-pointer"/>
+                        </div>
+                        <div class="space-y-2">
+                            <label for="threshold-slider" class="block text-sm font-medium text-gray-700">흐림 기준값 (낮을수록 민감)</label>
+                            <div class="flex items-center gap-2">
+                                <input type="range" id="threshold-slider" min="0" max="200" value="50" class="w-full h-2 bg-gray-200 rounded-lg appearance-none cursor-pointer">
+                                <span id="threshold-value" contenteditable="true" class="font-bold text-lg text-blue-600 w-16 text-center cursor-text focus:outline-none focus:ring-2 focus:ring-blue-500 rounded-md px-1">50</span>
+                            </div>
+                        </div>
+                    </div>
+                    <!-- Category Inputs -->
+                    <div class="space-y-4 p-4 bg-gray-50 rounded-lg border">
+                        <h3 class="text-md font-semibold text-gray-800">분석 정보 입력</h3>
+                        <div class="grid grid-cols-1 sm:grid-cols-3 gap-4">
+                            <div>
+                                <label for="year-input" class="block text-sm font-medium text-gray-700">연도</label>
+                                <input type="number" id="year-input" class="mt-1 block w-full border-gray-300 rounded-md shadow-sm focus:ring-indigo-500 focus:border-indigo-500 sm:text-sm">
+                            </div>
+                            <div>
+                                <label for="event-type-input" class="block text-sm font-medium text-gray-700">이벤트 종류</label>
+                                <input type="text" id="event-type-input" class="mt-1 block w-full border-gray-300 rounded-md shadow-sm focus:ring-indigo-500 focus:border-indigo-500 sm:text-sm">
+                            </div>
+                            <div>
+                                <label for="day-input" class="block text-sm font-medium text-gray-700">데이</label>
+                                <input type="text" id="day-input" class="mt-1 block w-full border-gray-300 rounded-md shadow-sm focus:ring-indigo-500 focus:border-indigo-500 sm:text-sm">
+                            </div>
+                        </div>
+                        <p class="text-xs text-gray-500">'테이블' 정보는 파일명(ONYX, DTD, LUXON)에 따라 자동으로 분류됩니다.</p>
                     </div>
                 </div>
-                 <div id="auto-threshold-group" class="space-y-2 hidden">
-                    <label for="sensitivity-slider">자동 기준 민감도:</label>
-                    <div class="flex items-center gap-2">
-                        <input type="range" id="sensitivity-slider" min="50" max="95" value="75" class="w-full h-2 bg-gray-600 rounded-lg appearance-none cursor-pointer">
-                        <input type="number" id="sensitivity-input" min="50" max="95" value="75" class="font-bold text-lg w-20 text-center bg-gray-700 rounded-md border-gray-600">
-                        <span class="text-lg">%</span>
+                <div class="mt-6">
+                    <label for="review-before-upload-checkbox" class="flex items-center text-sm font-medium text-gray-700 cursor-pointer">
+                        <input type="checkbox" id="review-before-upload-checkbox" class="h-4 w-4 text-blue-600 border-gray-300 rounded focus:ring-blue-500" checked>
+                        <span class="ml-2">업로드 전 검토하기</span>
+                    </label>
+                </div>
+                <div class="mt-6 text-center">
+                    <button id="analyze-button" class="w-full md:w-auto bg-green-600 text-white font-bold py-3 px-12 rounded-full hover:bg-green-700 transition duration-300 disabled:bg-gray-400 disabled:cursor-not-allowed">
+                        분석 시작
+                    </button>
+                    <div id="loading-indicator" class="hidden mt-4 flex flex-col items-center">
+                        <div class="flex items-center justify-center space-x-4">
+                            <div class="loader"></div>
+                            <canvas id="preview-canvas" width="240" height="135" class="hidden bg-gray-200 rounded-md shadow-inner"></canvas>
+                        </div>
+                        <p id="progress-text" class="text-gray-600 mt-2"></p>
+                        <div id="upload-progress-container" class="w-full mt-4 hidden">
+                            <div class="w-full bg-gray-200 rounded-full h-4">
+                                <div id="upload-progress-bar" class="bg-blue-600 h-4 rounded-full text-xs font-medium text-white text-center leading-4 transition-all duration-300" style="width: 0%"></div>
+                            </div>
+                        </div>
+                        <button id="cancel-upload-btn" class="hidden mt-4 bg-red-600 text-white font-bold py-2 px-6 rounded-full hover:bg-red-700 transition">
+                            분석 중단
+                        </button>
                     </div>
                 </div>
             </div>
-            <div class="control-group space-y-3" id="history-control-group">
-                 <p class="font-bold text-white">기록 관리</p>
-                 <select id="session-select" class="w-full p-2 bg-gray-700 rounded-md border-gray-600">
-                     <option value="">세션 기록 선택...</option>
-                 </select>
-                 <button id="clear-all-logs-button" class="w-full px-3 py-2 bg-red-800 text-white text-sm rounded-md hover:bg-red-700 mt-2">모든 기록 지우기</button>
-                 <button id="download-log-button" class="w-full px-3 py-2 bg-green-700 text-white text-sm rounded-md hover:bg-green-600 mt-2 hidden">세션 로그 다운로드</button>
-            </div>
-            <div class="control-group space-y-3">
-                <p class="font-bold text-white">기타 설정</p>
-                <div class="flex items-center gap-2"><input id="mute-checkbox" type="checkbox" class="h-4 w-4 rounded"><label for="mute-checkbox">음소거</label></div>
-                <div class="flex items-center gap-2"><input id="debug-mode-checkbox" type="checkbox" class="h-4 w-4 rounded" checked><label for="debug-mode-checkbox">상세 로그 보기</label></div>
-            </div>
-        </div>
-        
-        <div class="flex justify-center my-4">
-             <button id="main-action-button" class="bg-blue-600 text-white font-bold py-3 px-8 text-lg rounded-full hover:bg-blue-700 transition disabled:bg-gray-500 disabled:cursor-not-allowed">모니터링 시작</button>
-        </div>
-        
-        <div class="grid grid-cols-1 lg:grid-cols-3 gap-8">
-            <div id="main-content" class="lg:col-span-2">
-                <div id="camera-grid" class="grid grid-cols-1 md:grid-cols-2 gap-6"></div>
-            </div>
-            <div id="debug-panel" class="bg-gray-900 text-gray-400 p-4 rounded-lg hidden">
-                <div class="flex justify-between items-center mb-2">
-                    <h3 class="text-white font-bold text-lg">상세 분석 로그</h3>
-                    <button id="clear-debug-log-button" class="px-3 py-1 bg-gray-600 text-white text-sm rounded-md hover:bg-gray-500">로그 지우기</button>
-                </div>
-                <div id="debug-log-container" class="font-mono text-xs space-y-2 max-h-[60vh] lg:max-h-full overflow-y-auto bg-black p-2 rounded-md">
-                </div>
-            </div>
-        </div>
 
-        <div id="blur-log-panel" class="mt-8 bg-gray-800 p-4 rounded-xl shadow-lg hidden">
+            <!-- Analysis History -->
+            <div id="history-section" class="bg-white p-6 rounded-2xl shadow-lg">
+                <h2 class="text-xl font-semibold mb-4 border-b pb-2">2. 분석 기록</h2>
+                <!-- Filter Controls -->
+                <div id="filter-controls" class="grid grid-cols-2 md:grid-cols-4 gap-4 mb-4 p-4 bg-gray-50 rounded-lg border">
+                    <div>
+                        <label for="year-filter" class="block text-sm font-medium text-gray-700">연도</label>
+                        <select id="year-filter" class="filter-select mt-1 block w-full pl-3 pr-10 py-2 text-base border-gray-300 focus:outline-none focus:ring-indigo-500 focus:border-indigo-500 sm:text-sm rounded-md"></select>
+                    </div>
+                    <div>
+                        <label for="event-type-filter" class="block text-sm font-medium text-gray-700">이벤트 종류</label>
+                        <select id="event-type-filter" class="filter-select mt-1 block w-full pl-3 pr-10 py-2 text-base border-gray-300 focus:outline-none focus:ring-indigo-500 focus:border-indigo-500 sm:text-sm rounded-md"></select>
+                    </div>
+                    <div>
+                        <label for="day-filter" class="block text-sm font-medium text-gray-700">데이</label>
+                        <select id="day-filter" class="filter-select mt-1 block w-full pl-3 pr-10 py-2 text-base border-gray-300 focus:outline-none focus:ring-indigo-500 focus:border-indigo-500 sm:text-sm rounded-md"></select>
+                    </div>
+                    <div>
+                        <label for="table-filter" class="block text-sm font-medium text-gray-700">테이블</label>
+                        <select id="table-filter" class="filter-select mt-1 block w-full pl-3 pr-10 py-2 text-base border-gray-300 focus:outline-none focus:ring-indigo-500 focus:border-indigo-500 sm:text-sm rounded-md"></select>
+                    </div>
+                </div>
+                <div id="results-list-container" class="space-y-1 max-h-[60vh] overflow-y-auto">
+                    <p id="results-list-placeholder" class="text-gray-500 text-center py-4">인증이 완료되면 기록을 불러옵니다...</p>
+                </div>
+                <div id="pagination-controls" class="pt-4 mt-4 border-t flex justify-center gap-2"></div>
+            </div>
+
+            <!-- Details Section -->
+            <div id="details-section" class="hidden space-y-8">
+                <div class="bg-white p-6 rounded-2xl shadow-lg">
+                    <h2 id="details-title" class="text-xl font-semibold mb-4 border-b pb-2 flex justify-between items-center">
+                        <span>3. 상세 분석 그래프</span>
+                        <button id="export-csv-btn" class="text-sm bg-blue-500 text-white font-semibold py-1 px-3 rounded-full hover:bg-blue-600 transition">CSV로 내보내기</button>
+                    </h2>
+                    <p class="text-sm text-gray-600 mb-2 -mt-2">그래프 위 빨간 점에 마우스를 올리면 주요 프레임을 확인할 수 있습니다.</p>
+                    <div id="chart-container" class="relative h-48 md:h-64">
+                        <canvas id="detail-chart"></canvas>
+                    </div>
+                </div>
+                <div class="bg-white p-6 rounded-2xl shadow-lg">
+                    <h2 class="text-xl font-semibold mb-4 border-b pb-2">4. 주요 프레임 보기</h2>
+                    <div id="key-frames-container" class="space-y-4">
+                        <p id="key-frames-placeholder" class="text-gray-500 text-center py-4">이 분석에는 감지된 문제 프레임이 없거나, 아직 기록이 선택되지 않았습니다.</p>
+                    </div>
+                </div>
+            </div>
+            
+            <!-- Log Container -->
+            <div id="log-section" class="bg-white p-6 rounded-2xl shadow-lg">
+                <h2 class="text-xl font-semibold mb-4 border-b pb-2">실시간 분석 로그</h2>
+                <div id="log-container" class="min-h-[10rem] max-h-[50rem] overflow-y-auto bg-gray-900 text-white font-mono rounded-lg p-4 border text-sm"><p id="log-placeholder" class="text-gray-400 text-center py-4">분석을 시작하거나 과거 기록을 선택하면 로그가 표시됩니다.</p></div>
+            </div>
+        </main>
+    </div>
+
+    <!-- Modals -->
+    <div id="review-modal-overlay" class="hidden fixed inset-0 z-50 flex items-center justify-center transition-opacity duration-300">
+        <div class="bg-white rounded-lg shadow-xl p-6 w-11/12 max-w-4xl transform transition-transform duration-300 scale-95 flex flex-col h-[90vh]">
+            <div class="flex justify-between items-center mb-4 border-b pb-3">
+                <h3 class="text-lg font-bold text-gray-900">업로드 전 검토</h3>
+                <button id="close-review-modal-btn" class="text-gray-500 hover:text-gray-800 text-2xl leading-none">&times;</button>
+            </div>
+            <p class="text-sm text-gray-600 mb-4">업로드할 문제 프레임을 선택하세요. 선택 해제된 항목은 서버에 저장되지 않습니다.</p>
+            <div id="review-frames-list" class="flex-grow overflow-y-auto space-y-4 pr-2"></div>
+            <div class="mt-6 flex justify-end space-x-3 border-t pt-4">
+                <button id="review-cancel-btn" class="px-4 py-2 bg-gray-200 text-gray-800 rounded-md hover:bg-gray-300">전체 취소</button>
+                <button id="review-confirm-btn" class="px-4 py-2 bg-blue-600 text-white rounded-md hover:bg-blue-700">선택한 프레임 업로드</button>
+            </div>
+        </div>
+    </div>
+    <div id="upload-test-modal-overlay" class="hidden fixed inset-0 z-50 flex items-center justify-center transition-opacity duration-300">
+        <div id="upload-test-modal" class="bg-white rounded-lg shadow-xl p-6 w-11/12 max-w-lg transform transition-transform duration-300 scale-95">
             <div class="flex justify-between items-center mb-4">
-                <h3 id="blur-log-title" class="text-white font-bold text-lg">흐림 감지 로그</h3>
-                <button id="clear-log-button" class="px-3 py-1 bg-red-600 text-white text-sm rounded-md hover:bg-red-700">현재 세션 모두 지우기</button>
+                <h3 class="text-lg font-bold text-gray-900">Firebase 연결 테스트</h3>
+                <button id="close-test-modal-btn" class="text-gray-500 hover:text-gray-800 text-2xl leading-none">&times;</button>
             </div>
-            <div id="blur-log-container" class="space-y-4">
-            </div>
-        </div>
-    </div>
-    
-    <div id="camera-select-modal" class="custom-modal-backdrop">
-        <div class="custom-modal-content">
-            <h3 class="text-lg font-bold mb-4 text-white">카메라 및 해상도 선택</h3>
-            <div id="camera-list" class="space-y-2 max-h-64 overflow-y-auto pr-2 mb-6"></div>
-            <div class="flex justify-end gap-4">
-                <button id="modal-cancel-button" class="px-4 py-2 bg-gray-600 rounded-lg hover:bg-gray-500">취소</button>
-                <button id="modal-start-button" class="px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700">선택 완료</button>
-            </div>
-        </div>
-    </div>
-
-    <div id="custom-confirm-modal" class="custom-modal-backdrop">
-        <div class="custom-modal-content">
-            <h3 id="confirm-modal-title" class="text-lg font-bold text-white mb-4"></h3>
-            <p id="confirm-modal-body" class="text-gray-300 mb-6"></p>
-            <div class="flex justify-end gap-4">
-                <button id="confirm-modal-cancel" class="px-4 py-2 bg-gray-600 rounded-lg hover:bg-gray-500">취소</button>
-                <button id="confirm-modal-ok" class="px-4 py-2 bg-red-600 text-white rounded-lg hover:bg-red-700">확인</button>
-            </div>
-        </div>
-    </div>
-
-    <div id="image-lightbox-modal" class="custom-modal-backdrop">
-        <span id="lightbox-close-button" class="absolute top-4 right-6 text-white text-5xl font-bold cursor-pointer hover:text-gray-300">&times;</span>
-        <img id="lightbox-image" class="max-w-[90vw] max-h-[90vh] object-contain rounded-lg shadow-2xl">
-    </div>
-
-    <!-- Patch Notes Modal -->
-    <div id="patch-notes-modal" class="custom-modal-backdrop">
-        <div class="custom-modal-content max-w-3xl">
-            <div class="flex justify-between items-center mb-4">
-                <h3 class="text-2xl font-bold text-white">패치 노트</h3>
-                <button id="patch-notes-close-button" class="text-3xl text-gray-400 hover:text-white">&times;</button>
-            </div>
-            <div class="space-y-6 max-h-[70vh] overflow-y-auto pr-4 text-gray-300">
-                
-                <div class="patch-note-entry">
-                    <h4 class="text-xl font-bold text-white">Ver 2.36 (현재 버전)</h4>
-                    <ul class="list-disc list-inside mt-2 space-y-1">
-                        <li>패치 노트 팝업 기능 추가 (버전 번호 클릭)</li>
-                        <li>UI/UX 개선: 버전 번호에 마우스 오버 시 상호작용 피드백 추가</li>
-                    </ul>
+            <div class="space-y-4">
+                <div>
+                    <h4 class="font-semibold mb-2">1. Storage 업로드 테스트</h4>
+                    <input type="file" id="test-file-input" class="block w-full text-sm text-gray-500 file:mr-4 file:py-2 file:px-4 file:rounded-full file:border-0 file:text-sm file:font-semibold file:bg-blue-50 file:text-blue-700 hover:file:bg-blue-100 cursor-pointer mb-2"/>
+                    <button id="start-storage-test-btn" class="w-full bg-blue-600 text-white font-bold py-2 px-4 rounded-full hover:bg-blue-700 transition">Storage 테스트 시작</button>
                 </div>
-
-                <div class="patch-note-entry">
-                    <h4 class="text-xl font-bold text-white">Ver 2.35</h4>
-                    <ul class="list-disc list-inside mt-2 space-y-1">
-                        <li>로그 표시 방식 최적화: 최신 로그만 이미지 표시, 이전 로그는 클릭 시 로드 (Lazy Loading)</li>
-                        <li>로그 패널 레이아웃 확장 및 UI 개선</li>
-                    </ul>
-                </div>
-
-                <div class="patch-note-entry">
-                    <h4 class="text-xl font-bold text-white">Ver 2.34</h4>
-                    <ul class="list-disc list-inside mt-2 space-y-1">
-                        <li>흐림 감지 로직 수정: 항상 바로 직전 프레임과 비교하도록 개선</li>
-                    </ul>
-                </div>
-
-                <div class="patch-note-entry">
-                    <h4 class="text-xl font-bold text-white">Ver 2.33</h4>
-                    <ul class="list-disc list-inside mt-2 space-y-1">
-                        <li>성능 최적화: `toBlob` 비동기 처리로 이미지 추출 시 카메라 랙 현상 해결</li>
-                    </ul>
-                </div>
-                
-                <div class="patch-note-entry">
-                    <h4 class="text-xl font-bold text-white">Ver 2.32</h4>
-                    <ul class="list-disc list-inside mt-2 space-y-1">
-                        <li>버그 수정: 수동 기준 점수 슬라이더와 입력창이 실시간으로 연동되도록 수정</li>
-                    </ul>
-                </div>
-
-                <div class="patch-note-entry">
-                    <h4 class="text-xl font-bold text-white">Ver 2.31</h4>
-                    <ul class="list-disc list-inside mt-2 space-y-1">
-                        <li>버그 수정: 레이아웃 변경 후 발생한 `TypeError` 해결 (UI 요소 참조 코드 정리)</li>
-                    </ul>
-                </div>
-                 <div class="patch-note-entry">
-                    <h4 class="text-xl font-bold text-white">Ver 2.30</h4>
-                    <ul class="list-disc list-inside mt-2 space-y-1">
-                        <li>레이아웃 개선: 16:9 고정 비율 및 상세 로그와 분리된 2단 구조 도입</li>
-                        <li>로그 패널 확장 및 그리드 레이아웃 변경</li>
-                    </ul>
+                <div class="border-t my-4"></div>
+                <div>
+                    <h4 class="font-semibold mb-2">2. Firestore 쓰기 테스트</h4>
+                    <button id="start-firestore-test-btn" class="w-full bg-indigo-600 text-white font-bold py-2 px-4 rounded-full hover:bg-indigo-700 transition">Firestore 테스트 시작</button>
                 </div>
             </div>
         </div>
     </div>
+    <div id="custom-modal-overlay" class="hidden fixed inset-0 z-50 flex items-center justify-center transition-opacity duration-300">
+        <div id="custom-modal" class="bg-white rounded-lg shadow-xl p-6 w-11/12 max-w-md transform transition-transform duration-300 scale-95">
+            <h3 id="modal-title" class="text-lg font-bold text-gray-900">확인</h3>
+            <p id="modal-message" class="mt-2 text-sm text-gray-600">이 작업을 정말로 수행하시겠습니까?</p>
+            <div class="mt-6 flex justify-end space-x-3">
+                <button id="modal-cancel-btn" class="px-4 py-2 bg-gray-200 text-gray-800 rounded-md hover:bg-gray-300">취소</button>
+                <button id="modal-confirm-btn" class="px-4 py-2 bg-red-600 text-white rounded-md hover:bg-red-700">확인</button>
+            </div>
+        </div>
+    </div>
 
-
-    <script type="module">
-        import { FaceDetector, FilesetResolver } from "https://cdn.jsdelivr.net/npm/@mediapipe/tasks-vision@0.10.14/+esm";
-
-        // =================================================================
-        //  DATABASE MANAGER MODULE
-        // =================================================================
-        class DatabaseManager {
-            constructor(dbName, dbVersion, storeConfigs) {
-                this.db = null;
-                this.dbName = dbName;
-                this.dbVersion = dbVersion;
-                this.storeConfigs = storeConfigs;
+    <!-- 
+    ================================================================
+    ANALYSIS WORKER SCRIPT
+    ================================================================
+    -->
+    <script type="text/plain" id="analysis-worker-script">
+        function calculateFocusScore(imageData) {
+            const { width, height, data } = imageData;
+            if (width === 0 || height === 0) return 0;
+            const gray = new Uint8Array(width * height);
+            for (let i = 0; i < data.length; i += 4) {
+                gray[i / 4] = 0.299 * data[i] + 0.587 * data[i + 1] + 0.114 * data[i + 2];
             }
-
-            async init() {
-                if (!window.idb) {
-                    throw new Error('IndexedDB library (idb) is not loaded.');
+            let laplacianMean = 0;
+            const laplacianValues = [];
+            for (let y = 1; y < height - 1; y++) {
+                for (let x = 1; x < width - 1; x++) {
+                    const i = y * width + x;
+                    const laplacian = gray[i - width] + gray[i + width] + gray[i - 1] + gray[i + 1] - 4 * gray[i];
+                    laplacianValues.push(laplacian);
+                    laplacianMean += laplacian;
                 }
-                this.db = await idb.openDB(this.dbName, this.dbVersion, {
-                    upgrade: (db) => {
-                        for (const storeName of Object.keys(this.storeConfigs)) {
-                            if (!db.objectStoreNames.contains(storeName)) {
-                                const config = this.storeConfigs[storeName];
-                                const store = db.createObjectStore(storeName, config.options);
-                                if (config.indexes) {
-                                    config.indexes.forEach(index => store.createIndex(index.name, index.keyPath, index.options));
-                                }
-                            }
-                        }
-                    },
-                });
-                return this.db;
             }
-
-            async add(storeName, data) { return this.db.add(storeName, data); }
-            async getAll(storeName) { return this.db.getAll(storeName); }
-            async getAllFromIndex(storeName, indexName, query) {
-                const results = [];
-                let cursor = await this.db.transaction(storeName).store.index(indexName).openCursor(IDBKeyRange.only(query));
-                while (cursor) {
-                    results.push({ id: cursor.primaryKey, ...cursor.value });
-                    cursor = await cursor.continue();
-                }
-                return results;
-            }
-            async delete(storeName, key) { return this.db.delete(storeName, key); }
-            async clearStore(storeName) { return this.db.clear(storeName); }
-            async deleteFromIndex(storeName, indexName, query) {
-                const tx = this.db.transaction(storeName, 'readwrite');
-                const index = tx.store.index(indexName);
-                let cursor = await index.openCursor(IDBKeyRange.only(query));
-                while (cursor) {
-                    cursor.delete();
-                    cursor = await cursor.continue();
-                }
-                return tx.done;
-            }
+            if (laplacianValues.length === 0) return 0;
+            laplacianMean /= laplacianValues.length;
+            const variance = laplacianValues.reduce((acc, val) => acc + Math.pow(val - laplacianMean, 2), 0) / laplacianValues.length;
+            return variance;
         }
 
-        // =================================================================
-        //  UI MANAGER MODULE
-        // =================================================================
-        class UIManager {
-            constructor() {
-                this.dom = {};
-                this.bindDOMElements();
-            }
+        function getBestFace(detections, videoWidth, videoHeight) {
+             if (!detections || detections.length === 0) return null;
+             if (detections.length === 1) return detections[0];
+             const frameCenterX = videoWidth / 2;
+             const frameCenterY = videoHeight / 2;
+             const scoredDetections = detections.map(detection => {
+                 const { box } = detection;
+                 const area = box.width * box.height;
+                 const faceCenterX = box.x + box.width / 2;
+                 const faceCenterY = box.y + box.height / 2;
+                 const distance = Math.sqrt(Math.pow(frameCenterX - faceCenterX, 2) + Math.pow(frameCenterY - faceCenterY, 2));
+                 return { detection, area, distance };
+             });
+             const maxArea = Math.max(...scoredDetections.map(d => d.area));
+             const maxDistance = Math.max(...scoredDetections.map(d => d.distance));
+             const safeMaxArea = maxArea === 0 ? 1 : maxArea;
+             const safeMaxDistance = maxDistance === 0 ? 1 : maxDistance;
+             let bestDetection = null;
+             let maxScore = -1;
+             for (const item of scoredDetections) {
+                 const sizeScore = item.area / safeMaxArea;
+                 const distanceScore = 1 - (item.distance / safeMaxDistance);
+                 const finalScore = (sizeScore * 0.4) + (distanceScore * 0.6);
+                 if (finalScore > maxScore) {
+                     maxScore = finalScore;
+                     bestDetection = item.detection;
+                 }
+             }
+             return bestDetection;
+        }
 
-            bindDOMElements() {
-                const ids = [
-                    'main-action-button', 'status-container', 'status-text', 'loading-spinner',
-                    'camera-grid', 'auto-threshold-checkbox', 'manual-threshold-group',
-                    'auto-threshold-group', 'threshold-slider', 'threshold-input',
-                    'sensitivity-slider', 'sensitivity-input',
-                    'session-select', 'clear-all-logs-button', 'mute-checkbox',
-                    'debug-mode-checkbox', 'camera-select-modal', 'camera-list',
-                    'modal-cancel-button', 'modal-start-button', 'blur-log-panel',
-                    'blur-log-title', 'blur-log-container', 'clear-log-button', 'debug-panel',
-                    'debug-log-container', 'clear-debug-log-button', 'custom-confirm-modal',
-                    'confirm-modal-title', 'confirm-modal-body', 'confirm-modal-cancel', 'confirm-modal-ok',
-                    'history-control-group', 'download-log-button',
-                    'image-lightbox-modal', 'lightbox-close-button', 'lightbox-image',
-                    'patch-notes-modal', 'patch-notes-close-button', 'version-title'
-                ];
-                ids.forEach(id => {
-                    const camelCaseId = id.replace(/-(\w)/g, (_, c) => c.toUpperCase());
-                    this.dom[camelCaseId] = document.getElementById(id);
-                });
-            }
-
-            updateStatus(message, type) {
-                this.dom.statusText.textContent = message;
-                this.dom.loadingSpinner.style.display = type === 'loading' ? 'block' : 'none';
-                const container = this.dom.statusContainer;
-                container.className = 'text-lg mt-2 flex items-center justify-center gap-2';
-                if (type === 'success') container.classList.add('text-green-400');
-                else if (type === 'error') container.classList.add('text-red-400');
-                else container.classList.add('text-yellow-400');
-            }
-
-            setAppState(state) {
-                this.dom.mainActionButton.disabled = state === 'initializing';
-                if (state === 'stopped') {
-                    this.dom.mainActionButton.textContent = '모니터링 시작';
-                    this.updateStatus('모니터링할 카메라를 선택하세요.', 'idle');
-                } else if (state === 'monitoring') {
-                    this.dom.mainActionButton.textContent = '모니터링 중지';
-                }
-            }
+        async function getCroppedFaceDataURL(canvas, box) {
+            if (!box) return null;
+            const { x, y, width, height } = box;
+            const tempCanvas = new OffscreenCanvas(width, height);
+            const tempCtx = tempCanvas.getContext('2d');
+            tempCtx.drawImage(canvas, x, y, width, height, 0, 0, width, height);
+            return await tempCanvas.convertToBlob({ type: 'image/jpeg', quality: 0.8 });
+        }
+        
+        async function analyzeVideoFile(file, options) {
+            const { threshold, detectionCanvasWidth, fileIndex, totalFiles } = options;
             
-            toggleModal(modalId, show) {
-                this.dom[modalId].style.display = show ? 'flex' : 'none';
-            }
-
-            showConfirm(title, body, onOk) {
-                this.dom.confirmModalTitle.textContent = title;
-                this.dom.confirmModalBody.textContent = body;
-                const newOkButton = this.dom.confirmModalOk.cloneNode(true);
-                this.dom.confirmModalOk.parentNode.replaceChild(newOkButton, this.dom.confirmModalOk);
-                this.dom.confirmModalOk = newOkButton;
-                newOkButton.addEventListener('click', () => {
-                    onOk();
-                    this.toggleModal('customConfirmModal', false);
-                }, { once: true });
-                this.toggleModal('customConfirmModal', true);
-            }
-
-            disableLoggingFeatures() {
-                this.dom.sessionSelect.classList.add('hidden');
-                this.dom.clearAllLogsButton.classList.add('hidden');
-                this.dom.downloadLogButton.classList.remove('hidden');
-                const historyGroup = this.dom.historyControlGroup;
-                historyGroup.querySelector('p').textContent = '기록 관리 (저장소 비활성)';
-                if (!historyGroup.querySelector('.db-error-message')) {
-                    const message = document.createElement('p');
-                    message.className = 'text-xs text-yellow-400 mt-1 db-error-message';
-                    message.textContent = '로그는 현재 세션에서만 유지되며 다운로드 가능합니다.';
-                    historyGroup.appendChild(message);
-                }
-            }
+            const video = document.createElement('video');
+            const canvas = new OffscreenCanvas(1, 1);
+            const ctx = canvas.getContext('2d', { willReadFrequently: true });
+            const detectionCanvas = new OffscreenCanvas(1, 1);
+            const detectionCtx = detectionCanvas.getContext('2d');
             
-            populateCameraList(devices) {
-                this.dom.cameraList.innerHTML = '';
-                if (devices.length === 0) {
-                    this.dom.cameraList.innerHTML = '<p class="text-gray-400">사용 가능한 카메라가 없습니다.</p>';
-                    return;
-                }
-                devices.forEach((device, index) => {
-                    const item = document.createElement('div');
-                    item.className = 'flex items-center justify-between p-2 rounded-md hover:bg-gray-700';
-                    item.innerHTML = `
-                        <label class="flex items-center gap-3 cursor-pointer">
-                            <input type="checkbox" data-device-id="${device.deviceId}" class="h-4 w-4 rounded">
-                            <span class="text-gray-300">${device.label || `카메라 ${index + 1}`}</span>
-                        </label>
-                        <select data-res-for="${device.deviceId}" class="bg-gray-600 rounded-md p-1 text-xs text-white">
-                            <option value="default">기본값</option>
-                            <option value="640x480">640x480</option>
-                            <option value="1280x720">1280x720 (HD)</option>
-                            <option value="1920x1080">1920x1080 (FHD)</option>
-                        </select>
-                    `;
-                    this.dom.cameraList.appendChild(item);
-                });
-            }
+            video.src = URL.createObjectURL(file);
+            const duration = await new Promise(resolve => {
+                video.onloadedmetadata = () => resolve(video.duration);
+            });
 
-            createCameraCard() {
-                const card = {};
-                card.wrapper = document.createElement('div');
-                card.wrapper.className = 'camera-card rounded-lg p-4 flex flex-col gap-2';
-                card.videoContainer = document.createElement('div');
-                card.videoContainer.className = 'relative w-full aspect-video';
-                card.video = document.createElement('video');
-                card.video.autoplay = true; card.video.muted = true; card.video.playsInline = true;
-                card.video.className = 'w-full h-full rounded-md bg-black object-contain';
-                card.overlayCanvas = document.createElement('canvas');
-                card.overlayCanvas.className = 'overlay-canvas';
-                const infoDiv = document.createElement('div');
-                infoDiv.className = 'absolute top-0 left-0 w-full p-2 text-xs text-white bg-black bg-opacity-50 flex justify-between items-center flex-wrap gap-x-4';
-                card.nameEl = document.createElement('span');
-                card.originalResolutionEl = document.createElement('span');
-                infoDiv.append(card.nameEl, card.originalResolutionEl);
-                card.scoreEl = document.createElement('p');
-                card.scoreEl.className = 'absolute bottom-2 left-1/2 -translate-x-1/2 font-bold text-2xl text-white bg-black bg-opacity-50 px-2 rounded';
-                card.processCanvas = document.createElement('canvas');
-                card.processCanvas.className = 'hidden';
-                const actionsDiv = document.createElement('div');
-                actionsDiv.className = 'flex justify-center mt-2';
-                card.captureButton = document.createElement('button');
-                card.captureButton.className = 'manual-capture-button bg-blue-500 hover:bg-blue-600 px-4 py-2 rounded text-sm font-semibold';
-                card.captureButton.textContent = '현재 장면 추출';
-                actionsDiv.appendChild(card.captureButton);
-                card.videoContainer.append(card.video, card.overlayCanvas, infoDiv, card.scoreEl);
-                card.wrapper.append(card.videoContainer, actionsDiv, card.processCanvas);
-                return card;
-            }
+            const frameScores = [];
+            let previousFrameState = { status: '미검출', fullFrameData: null, croppedFaceData: null, score: null };
+            const keyFramesData = [];
+            const SAMPLING_INTERVAL_SECONDS = 0.5;
+            const totalSamples = Math.floor(duration / SAMPLING_INTERVAL_SECONDS);
 
-            renderBlurLog(logEntries, deleteHandler) {
-                this.dom.blurLogContainer.innerHTML = '';
-                this.dom.blurLogPanel.classList.toggle('hidden', logEntries.length === 0);
-                if (logEntries.length === 0) return;
-
-                const latestEntry = logEntries[0];
-                const latestLogItem = this.createFullLogItem(latestEntry, deleteHandler);
-                this.dom.blurLogContainer.appendChild(latestLogItem);
-
-                const olderEntries = logEntries.slice(1);
-                if (olderEntries.length > 0) {
-                    const historyContainer = document.createElement('div');
-                    historyContainer.className = 'mt-6 pt-4 border-t border-gray-700';
-                    historyContainer.innerHTML = `<h4 class="text-lg font-semibold mb-4 text-gray-300">이전 기록</h4>`;
-                    const listContainer = document.createElement('div');
-                    listContainer.className = 'space-y-2';
-                    olderEntries.forEach(entry => {
-                        const compactItem = this.createCompactLogItem(entry, deleteHandler);
-                        listContainer.appendChild(compactItem);
-                    });
-                    historyContainer.appendChild(listContainer);
-                    this.dom.blurLogContainer.appendChild(historyContainer);
-                }
-            }
-
-            createFullLogItem(entry, deleteHandler) {
-                const logItem = document.createElement('div');
-                logItem.className = 'bg-gray-700 p-3 rounded-lg relative';
-                const deleteButton = document.createElement('button');
-                deleteButton.innerHTML = '&times;';
-                deleteButton.className = 'absolute top-2 right-2 text-2xl text-gray-400 hover:text-white leading-none p-1 z-10';
-                deleteButton.title = '이 로그 삭제';
-                deleteButton.onclick = () => deleteHandler(entry);
-                logItem.appendChild(deleteButton);
-                const isManual = entry.type === 'manual';
-                const headerText = isManual ? `수동 추출: ${entry.timestamp}` : `흐림 감지: ${entry.timestamp}`;
-                logItem.insertAdjacentHTML('beforeend', `<div class="text-center mb-2 text-sm"><p class="text-gray-300">${headerText}</p></div>`);
-                logItem.appendChild(this.createFramesContainer(entry));
-                return logItem;
-            }
-
-            createCompactLogItem(entry, deleteHandler) {
-                const compactItem = document.createElement('div');
-                compactItem.className = 'bg-gray-600 p-2 rounded-md flex justify-between items-center';
-                const isManual = entry.type === 'manual';
-                const scoreText = isManual ? `점수: ${entry.blurryScore.toFixed(1)}` : `점수: ${entry.clearScore.toFixed(1)} -> ${entry.blurryScore.toFixed(1)}`;
-                const typeText = isManual ? '수동 추출' : '흐림 감지';
-                compactItem.innerHTML = `<div class="text-sm text-gray-300"><span>${entry.timestamp}</span> - <span class="font-semibold">${typeText}</span><span class="ml-4">${scoreText}</span></div>`;
-                const actionsWrapper = document.createElement('div');
-                actionsWrapper.className = 'flex items-center gap-4';
-                const viewButton = document.createElement('button');
-                viewButton.textContent = '결과 보기';
-                viewButton.className = 'bg-blue-600 hover:bg-blue-700 px-3 py-1 rounded text-xs font-semibold';
-                viewButton.onclick = () => {
-                    const fullItem = this.createFullLogItem(entry, deleteHandler);
-                    compactItem.replaceWith(fullItem);
+            for (let j = 0; j < totalSamples; j++) {
+                const currentTime = j * SAMPLING_INTERVAL_SECONDS;
+                
+                const progressPayload = { 
+                    text: `파일 분석 중 (${fileIndex + 1}/${totalFiles}) - ${j + 1}/${totalSamples}`, 
+                    time: currentTime, 
+                    duration 
                 };
-                actionsWrapper.appendChild(viewButton);
-                const deleteButton = document.createElement('button');
-                deleteButton.innerHTML = '&times;';
-                deleteButton.className = 'text-xl text-gray-400 hover:text-white leading-none';
-                deleteButton.title = '이 로그 삭제';
-                deleteButton.onclick = () => deleteHandler(entry);
-                actionsWrapper.appendChild(deleteButton);
-                compactItem.appendChild(actionsWrapper);
-                return compactItem;
-            }
-            
-            createFramesContainer(entry) {
-                const framesContainer = document.createElement('div');
-                framesContainer.className = 'grid grid-cols-2 gap-4';
-                const createFrame = (title, color, dataUrl, score) => {
-                    const wrapper = document.createElement('div');
-                    wrapper.className = 'text-center cursor-pointer';
-                    wrapper.innerHTML = `<p class="font-semibold mb-1 ${color}">${title}</p><p class="font-mono text-xs text-gray-400 -mt-1 mb-2">(점수: ${score})</p>`;
-                    const canvas = document.createElement('canvas');
-                    canvas.className = 'w-full rounded-lg bg-black aspect-video object-contain';
-                    wrapper.appendChild(canvas);
-                    const img = new Image();
-                    img.onload = () => {
-                        canvas.width = img.width;
-                        canvas.height = img.height;
-                        canvas.getContext('2d').drawImage(img, 0, 0);
+                
+                if (j % 2 === 0) {
+                    const previewCanvas = new OffscreenCanvas(240, 135);
+                    const previewCtx = previewCanvas.getContext('2d');
+                    previewCtx.drawImage(video, 0, 0, 240, 135);
+                    progressPayload.previewBitmap = previewCanvas.transferToImageBitmap();
+                }
+                self.postMessage({ type: 'progress', payload: progressPayload }, progressPayload.previewBitmap ? [progressPayload.previewBitmap] : []);
+
+                await new Promise(resolve => {
+                    video.onseeked = () => resolve();
+                    video.currentTime = currentTime;
+                });
+                
+                if (canvas.width !== video.videoWidth) canvas.width = video.videoWidth;
+                if (canvas.height !== video.videoHeight) canvas.height = video.videoHeight;
+                ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
+
+                const scale = detectionCanvasWidth / video.videoWidth;
+                detectionCanvas.width = detectionCanvasWidth;
+                detectionCanvas.height = video.videoHeight * scale;
+                detectionCtx.drawImage(video, 0, 0, detectionCanvas.width, detectionCanvas.height);
+                
+                const detections = await faceapi.detectAllFaces(detectionCanvas, new faceapi.SsdMobilenetv1Options({ minConfidence: 0.5 }));
+                const resizedDetections = faceapi.resizeResults(detections, { width: canvas.width, height: canvas.height });
+                const bestFace = getBestFace(resizedDetections, canvas.width, canvas.height);
+
+                let currentStatus = '미검출', currentCroppedFace = null, currentScore = null;
+
+                if (bestFace) {
+                    const { x, y, width, height } = bestFace.box;
+                    const faceImageData = ctx.getImageData(x, y, width, height);
+                    currentScore = calculateFocusScore(faceImageData);
+                    currentStatus = currentScore < threshold ? '흐림' : '선명';
+                    frameScores.push({ time: currentTime, score: currentScore });
+                    currentCroppedFace = await getCroppedFaceDataURL(canvas, bestFace.box);
+                }
+
+                if (currentStatus === '흐림' && (previousFrameState.status === '선명' || previousFrameState.status === '미검출')) {
+                    const blurryFullFrame = await canvas.convertToBlob({ type: 'image/jpeg', quality: 0.8 });
+                    const data = {
+                        time: currentTime,
+                        sharpFull: previousFrameState.fullFrameData,
+                        sharpCropped: previousFrameState.croppedFaceData,
+                        sharpScore: previousFrameState.score,
+                        blurryFull: blurryFullFrame,
+                        blurryCropped: currentCroppedFace,
+                        blurryScore: currentScore
                     };
-                    img.src = dataUrl;
-                    wrapper.addEventListener('click', () => this.showImageInLightbox(dataUrl));
-                    return wrapper;
-                };
-                if (entry.type === 'manual') {
-                    framesContainer.appendChild(createFrame('추출 프레임', 'text-blue-400', entry.blurryFrameUrl, entry.blurryScore.toFixed(1)));
-                    framesContainer.appendChild(createFrame('추출 얼굴 (크롭)', 'text-blue-400', entry.croppedBlurryFaceUrl, entry.blurryScore.toFixed(1)));
-                } else {
-                    if (entry.clearFrameUrl) {
-                        framesContainer.appendChild(createFrame('이전 프레임 (선명)', 'text-green-400', entry.clearFrameUrl, entry.clearScore.toFixed(1)));
-                    } else { framesContainer.appendChild(document.createElement('div')); }
-                    framesContainer.appendChild(createFrame('현재 프레임 (흐림)', 'text-red-400', entry.blurryFrameUrl, entry.blurryScore.toFixed(1)));
-                    if (entry.croppedClearFaceUrl) {
-                         framesContainer.appendChild(createFrame('선명한 얼굴 (크롭)', 'text-green-400', entry.croppedClearFaceUrl, entry.clearScore.toFixed(1)));
-                    } else { framesContainer.appendChild(document.createElement('div')); }
-                    framesContainer.appendChild(createFrame('흐린 얼굴 (크롭)', 'text-red-400', entry.croppedBlurryFaceUrl, entry.blurryScore.toFixed(1)));
+                    keyFramesData.push(data);
+                    self.postMessage({ type: 'log', payload: { message: `문제 의심 프레임 감지 @ ${currentTime.toFixed(2)}초`, color: 'text-yellow-400' }});
                 }
-                return framesContainer;
-            }
 
-            showImageInLightbox(dataUrl) {
-                this.dom.lightboxImage.src = dataUrl;
-                this.toggleModal('imageLightboxModal', true);
+                previousFrameState = {
+                    status: currentStatus,
+                    fullFrameData: await canvas.convertToBlob({ type: 'image/jpeg', quality: 0.8 }),
+                    croppedFaceData: currentCroppedFace,
+                    score: currentScore
+                };
             }
+            
+            URL.revokeObjectURL(video.src);
+            return { fileName: file.name, frameScores, keyFramesData };
         }
 
-
-        // =================================================================
-        //  MAIN APPLICATION CLASS
-        // =================================================================
-        class FocusMonitorApp {
-            constructor() {
-                this.SETTINGS_KEY = 'focusMonitorSettings';
-                this.ui = new UIManager();
-                this.dbManager = new DatabaseManager('FocusMonitorDB', 2, {
-                    'sessions': { options: { keyPath: 'id' } },
-                    'blurLogs': { options: { autoIncrement: true }, indexes: [{ name: 'sessionId', keyPath: 'sessionId', options: { unique: false } }] }
-                });
-                this.faceDetector = null;
-                this.isDbAvailable = false;
-                this.currentSessionId = null;
-                this.sessionLogEntries = [];
-                this.appState = 'initializing';
-                this.activeStreams = [];
-                this.analysisLoops = new Map();
-                this.cameraAnalysisData = new Map();
-                this.debugLogEntries = [];
-                this.userHasScrolledDebug = false;
-                this.audioContextStarted = false;
-                this.synth = new Tone.Synth().toDestination();
-                this.addEventListeners();
-                this.initializeApp();
+        self.onmessage = async (event) => {
+            const { file, options } = event.data;
+            try {
+                if (!self.faceapi) {
+                    self.importScripts(options.faceApiUrl);
+                }
+                if (!faceapi.nets.ssdMobilenetv1.isLoaded) {
+                     await faceapi.nets.ssdMobilenetv1.loadFromUri(options.modelUrl);
+                }
+                const result = await analyzeVideoFile(file, options);
+                self.postMessage({ type: 'result', payload: result });
+            } catch (error) {
+                self.postMessage({ type: 'error', payload: { message: error.message, stack: error.stack } });
             }
+        };
+    </script>
+    
+    <!-- 
+    ================================================================
+    MAIN APPLICATION SCRIPT
+    ================================================================
+    -->
+    <script type="module">
+        import { initializeApp } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-app.js";
+        import { getAuth, signInAnonymously, onAuthStateChanged } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-auth.js";
+        import { getFirestore, collection, addDoc, onSnapshot, doc, updateDoc, deleteDoc, serverTimestamp, runTransaction } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-firestore.js";
+        import { getStorage, ref, uploadBytesResumable, getDownloadURL, deleteObject } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-storage.js";
 
-            async initializeApp() {
-                this.addDebugLog('App initializing...');
-                this.loadSettings();
-                if (!navigator.mediaDevices?.getUserMedia) {
-                    this.ui.updateStatus("오류: 이 브라우저에서는 카메라 기능을 지원하지 않습니다.", 'error');
-                    this.ui.dom.mainActionButton.disabled = true;
-                    return;
-                }
-                try {
-                    await this.dbManager.init();
-                    this.isDbAvailable = true;
-                    await this.loadSessions();
-                } catch (error) {
-                    this.isDbAvailable = false;
-                    this.addDebugLog('Failed to initialize IndexedDB.', 'ERROR', error);
-                    this.ui.disableLoggingFeatures();
-                }
-                try {
-                    this.ui.updateStatus("핵심 엔진(WASM) 로딩 중...", 'loading');
-                    const vision = await FilesetResolver.forVisionTasks("https://cdn.jsdelivr.net/npm/@mediapipe/tasks-vision@0.10.14/wasm");
-                    this.addDebugLog('Vision Wasm loaded.', 'SUCCESS');
-                    this.ui.updateStatus("얼굴 인식 AI 모델 다운로드 중...", 'loading');
-                    this.faceDetector = await FaceDetector.createFromOptions(vision, {
-                        baseOptions: { modelAssetPath: `https://storage.googleapis.com/mediapipe-models/face_detector/blaze_face_short_range/float16/1/blaze_face_short_range.tflite`, delegate: "GPU" },
-                        runningMode: "VIDEO"
+        const C = {
+            APP_VERSION: "3.2",
+            FIREBASE_COLLECTION: 'public_data/shared_documents/analyses',
+            STORAGE_PATH: 'public_assets',
+            TEST_STORAGE_PATH: 'public_assets/test-uploads',
+            TEST_FIRESTORE_PATH: 'public_data/shared_documents/test_writes',
+            LOCAL_STORAGE_KEY: 'focusThreshold',
+            DEFAULT_THRESHOLD: 50,
+            LOCK_TIMEOUT_MS: 5 * 60 * 1000,
+            ITEMS_PER_PAGE: 20,
+            MODEL_URL: 'https://cdn.jsdelivr.net/npm/face-api.js@0.22.2/dist/face-api.min.js',
+            MODEL_WEIGHTS_URL: 'https://cdn.jsdelivr.net/gh/justadudewhohacks/face-api.js@0.22.2/weights',
+            DETECTION_CANVAS_WIDTH: 480,
+            FILTER_ALL: 'all',
+            MANUAL_OVERRIDE: { OK: 'ok' },
+        };
+
+        const AppState = {
+            modelsLoaded: false,
+            firebaseReady: false,
+            isAnalyzing: false,
+            allAnalyses: [],
+            filteredAnalyses: [],
+            currentPage: 1,
+            analysisWorker: null,
+            currentLockedDocId: null,
+            lockHeartbeat: null,
+            lastAddedDocId: null,
+            detailChart: null,
+            reviewModalResolve: null,
+            reviewModalObjectUrls: [],
+            modalResolve: null,
+            filters: { year: C.FILTER_ALL, eventType: C.FILTER_ALL, day: C.FILTER_ALL, table: C.FILTER_ALL }
+        };
+
+        const D = {};
+        function initDom() {
+            const ids = [
+                'version-display', 'connection-status', 'model-status', 'video-files-input',
+                'threshold-slider', 'threshold-value', 'review-before-upload-checkbox',
+                'analyze-button', 'loading-indicator', 'progress-text', 'upload-progress-container',
+                'upload-progress-bar', 'cancel-upload-btn', 'results-list-container',
+                'results-list-placeholder', 'pagination-controls', 'details-section',
+                'details-title', 'detail-chart', 'log-container', 'key-frames-container',
+                'export-csv-btn', 'show-upload-test-btn', 'upload-test-modal-overlay',
+                'close-test-modal-btn', 'test-file-input', 'start-storage-test-btn',
+                'start-firestore-test-btn', 'review-modal-overlay', 'review-frames-list',
+                'close-review-modal-btn', 'review-cancel-btn', 'review-confirm-btn',
+                'preview-canvas', 'year-filter', 'event-type-filter', 'day-filter',
+                'table-filter', 'year-input', 'event-type-input', 'day-input', 'log-placeholder',
+                'key-frames-placeholder', 'custom-modal-overlay', 'custom-modal', 'modal-title',
+                'modal-message', 'modal-cancel-btn', 'modal-confirm-btn'
+            ];
+            ids.forEach(id => {
+                const key = id.replace(/-(\w)/g, (_, c) => c.toUpperCase());
+                D[key] = document.getElementById(id);
+            });
+            D.previewCtx = D.previewCanvas.getContext('2d');
+        }
+
+        const Firebase = {
+            app: null, auth: null, db: null, storage: null,
+            init(onAuthReady) {
+                const firebaseConfig = {
+                    apiKey: "AIzaSyAyTh3kG9pPcgqcs-MHXSBKFgY_gnRWae0",
+                    authDomain: "analyze-frame-focus.firebaseapp.com",
+                    projectId: "analyze-frame-focus",
+                    storageBucket: "analyze-frame-focus.appspot.com",
+                    messagingSenderId: "995861796391",
+                    appId: "1:995861796391:web:549944764ca046594c2002"
+                };
+                 try {
+                    this.app = initializeApp(firebaseConfig);
+                    this.auth = getAuth(this.app);
+                    this.db = getFirestore(this.app);
+                    this.storage = getStorage(this.app);
+                    onAuthStateChanged(this.auth, async (user) => {
+                        if (user) onAuthReady(user);
+                        else await signInAnonymously(this.auth);
                     });
-                    this.addDebugLog('FaceDetector created.', 'SUCCESS');
-                    this.setAppState('stopped');
+                     AppState.firebaseReady = true;
+                     return { success: true, projectId: firebaseConfig.projectId };
+                } catch (e) {
+                     AppState.firebaseReady = false;
+                     return { success: false, error: e };
+                }
+            }
+        };
+        
+        const api = {
+            listenForAnalyses(callback) {
+                 const q = collection(Firebase.db, C.FIREBASE_COLLECTION);
+                 return onSnapshot(q, (snapshot) => {
+                     const analyses = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
+                     analyses.sort((a, b) => (b.timestamp?.seconds ?? 0) - (a.timestamp?.seconds ?? 0));
+                     callback(analyses);
+                 }, (error) => ui.appendLog(`DB 데이터 수신 오류: ${error.message}`, 'text-red-500'));
+            },
+            async addAnalysis(analysisData) {
+                const docRef = await addDoc(collection(Firebase.db, C.FIREBASE_COLLECTION), { ...analysisData, timestamp: serverTimestamp(), lock: null });
+                return docRef.id;
+            },
+            async uploadFile(path, blob, onProgress) {
+                if (!blob) return null;
+                const storageRef = ref(Firebase.storage, path);
+                const uploadTask = uploadBytesResumable(storageRef, blob);
+                return new Promise((resolve, reject) => {
+                    uploadTask.on('state_changed',
+                        (s) => onProgress && onProgress((s.bytesTransferred / s.totalBytes)),
+                        (e) => reject(e),
+                        async () => resolve(await getDownloadURL(uploadTask.snapshot.ref))
+                    );
+                });
+            },
+            async releaseLock(docId) {
+                if (!docId) return;
+                clearInterval(AppState.lockHeartbeat);
+                AppState.lockHeartbeat = null;
+                const docRef = doc(Firebase.db, C.FIREBASE_COLLECTION, docId);
+                try { await updateDoc(docRef, { lock: null }); } 
+                catch (error) { console.error(`Failed to release lock for ${docId}:`, error); }
+            },
+            async acquireLock(docId) {
+                if (!docId || !Firebase.auth.currentUser) return false;
+                const docRef = doc(Firebase.db, C.FIREBASE_COLLECTION, docId);
+                try {
+                    await runTransaction(Firebase.db, async (transaction) => {
+                        const sfDoc = await transaction.get(docRef);
+                        if (!sfDoc.exists()) throw new Error("문서가 존재하지 않습니다.");
+                        const data = sfDoc.data();
+                        const lock = data.lock;
+                        const isStale = lock && lock.lockedAt && (Date.now() - lock.lockedAt.toDate().getTime()) > C.LOCK_TIMEOUT_MS;
+                        if (lock && !isStale && lock.lockedBy !== Firebase.auth.currentUser.uid) throw new Error("다른 사용자가 이 항목을 사용 중입니다.");
+                        const newLock = { lockedBy: Firebase.auth.currentUser.uid, lockedAt: serverTimestamp() };
+                        transaction.update(docRef, { lock: newLock });
+                    });
+                    AppState.lockHeartbeat = setInterval(() => api.updateLock(docId), 60 * 1000);
+                    return true;
                 } catch (error) {
-                    this.ui.updateStatus(`모델 로딩 실패: ${error.message}`, 'error');
-                    this.addDebugLog('MediaPipe model loading failed.', 'ERROR', error);
+                    ui.appendLog(`항목을 잠글 수 없습니다: ${error.message}`, 'text-red-500');
+                    return false;
                 }
+            },
+            async updateLock(docId) {
+                await updateDoc(doc(Firebase.db, C.FIREBASE_COLLECTION, docId), { "lock.lockedAt": serverTimestamp() });
+            },
+            async updateAnalysis(docId, data) {
+                 await updateDoc(doc(Firebase.db, C.FIREBASE_COLLECTION, docId), data);
+            },
+            async deleteAnalysis(analysis) {
+                 const urlsToDelete = (analysis.keyFrames || []).flatMap(kf => [kf.sharpFullUrl, kf.sharpCroppedUrl, kf.blurryFullUrl, kf.blurryCroppedUrl]).filter(Boolean);
+                 const deletePromises = urlsToDelete.map(url => deleteObject(ref(Firebase.storage, url)).catch(e => console.warn(`Failed to delete ${url}`, e)));
+                 await Promise.all(deletePromises);
+                 await deleteDoc(doc(Firebase.db, C.FIREBASE_COLLECTION, analysis.id));
             }
-            
-            setAppState(newState) {
-                this.appState = newState;
-                this.ui.setAppState(newState);
-            }
+        };
 
-            addEventListeners() {
-                this.ui.dom.mainActionButton.addEventListener('click', () => this.handleMainAction());
-                this.ui.dom.modalCancelButton.addEventListener('click', () => this.ui.toggleModal('cameraSelectModal', false));
-                this.ui.dom.modalStartButton.addEventListener('click', () => this.startSelectedMonitoring());
-                
-                this.ui.dom.thresholdSlider.addEventListener('input', (e) => { this.ui.dom.thresholdInput.value = e.target.value; this.saveSettings(); });
-                this.ui.dom.thresholdInput.addEventListener('input', (e) => { this.ui.dom.thresholdSlider.value = e.target.value; this.saveSettings(); });
-                this.ui.dom.sensitivitySlider.addEventListener('input', (e) => { this.ui.dom.sensitivityInput.value = e.target.value; this.saveSettings(); });
-                this.ui.dom.sensitivityInput.addEventListener('input', (e) => { this.ui.dom.sensitivitySlider.value = e.target.value; this.saveSettings(); });
-
-                const settingsToSave = ['autoThresholdCheckbox', 'muteCheckbox', 'debugModeCheckbox'];
-                settingsToSave.forEach(id => this.ui.dom[id].addEventListener('change', () => this.saveSettings()));
-
-                this.ui.dom.clearLogButton.addEventListener('click', () => this.clearCurrentSessionLogs());
-                this.ui.dom.clearDebugLogButton.addEventListener('click', () => this.clearDebugLogs());
-                this.ui.dom.clearAllLogsButton.addEventListener('click', () => this.clearAllData());
-                this.ui.dom.sessionSelect.addEventListener('change', (e) => this.handleSessionChange(e));
-                this.ui.dom.downloadLogButton.addEventListener('click', () => this.downloadSessionLog());
-                
-                this.ui.dom.lightboxCloseButton.addEventListener('click', () => this.ui.toggleModal('imageLightboxModal', false));
-                this.ui.dom.imageLightboxModal.addEventListener('click', (e) => {
-                    if (e.target === this.ui.dom.imageLightboxModal) {
-                        this.ui.toggleModal('imageLightboxModal', false);
-                    }
-                });
-
-                this.ui.dom.versionTitle.addEventListener('click', () => this.ui.toggleModal('patchNotesModal', true));
-                this.ui.dom.patchNotesCloseButton.addEventListener('click', () => this.ui.toggleModal('patchNotesModal', false));
-
-                this.ui.dom.debugLogContainer.addEventListener('scroll', () => { this.userHasScrolledDebug = this.ui.dom.debugLogContainer.scrollTop > 0; });
-                this.ui.dom.confirmModalCancel.addEventListener('click', () => this.ui.toggleModal('customConfirmModal', false));
-            }
-
-            handleMainAction() {
-                this.startAudioContext();
-                if (this.appState === 'monitoring') this.stopAllMonitoring();
-                else this.openCameraSelectionModal();
-            }
-
-            async openCameraSelectionModal() {
-                this.stopAllMonitoring();
-                this.ui.dom.mainActionButton.disabled = true;
-                try {
-                    const stream = await navigator.mediaDevices.getUserMedia({ video: true });
-                    stream.getTracks().forEach(track => track.stop());
-                    const devices = await navigator.mediaDevices.enumerateDevices();
-                    const videoDevices = devices.filter(d => d.kind === 'videoinput');
-                    this.ui.populateCameraList(videoDevices);
-                    this.ui.toggleModal('cameraSelectModal', true);
-                } catch (err) {
-                    this.ui.updateStatus(`카메라 접근 오류: ${err.message}`, 'error');
-                } finally {
-                    this.ui.dom.mainActionButton.disabled = false;
+        const ui = {
+            appendLog(message, colorClass = 'text-gray-400', source = 'APP') {
+                if (D.logPlaceholder) { D.logPlaceholder.remove(); D.logPlaceholder = null; }
+                const logEntry = document.createElement('div');
+                logEntry.textContent = `[${new Date().toLocaleTimeString()}] [${source}] ${message}`;
+                logEntry.className = colorClass;
+                D.logContainer.appendChild(logEntry);
+                D.logContainer.scrollTop = D.logContainer.scrollHeight;
+            },
+            setLoadingState(isLoading) {
+                 AppState.isAnalyzing = isLoading;
+                 D.loadingIndicator.style.display = isLoading ? 'flex' : 'none';
+                 D.previewCanvas.classList.toggle('hidden', !isLoading);
+                 D.analyzeButton.disabled = isLoading;
+                 D.cancelUploadBtn.classList.toggle('hidden', !isLoading);
+                 D.thresholdSlider.disabled = isLoading;
+                 if (!isLoading) {
+                    D.uploadProgressContainer.classList.add('hidden');
+                    D.uploadProgressBar.style.width = '0%';
+                    D.videoFilesInput.value = '';
+                    this.updateAnalyzeButtonState();
+                 }
+            },
+            updateAnalyzeButtonState() {
+                const files = D.videoFilesInput.files;
+                D.analyzeButton.disabled = (files && files.length === 0) || !AppState.modelsLoaded || AppState.isAnalyzing;
+            },
+            updateAnalysisProgress(payload) {
+                D.progressText.textContent = payload.text;
+                if (payload.previewBitmap) {
+                    D.previewCtx.clearRect(0, 0, D.previewCanvas.width, D.previewCanvas.height);
+                    D.previewCtx.drawImage(payload.previewBitmap, 0, 0);
                 }
-            }
+            },
+            updateUploadProgress(progress) {
+                 D.uploadProgressContainer.classList.remove('hidden');
+                 const percent = Math.round(progress * 100);
+                 D.uploadProgressBar.style.width = `${percent}%`;
+                 D.uploadProgressBar.textContent = `${percent}%`;
+                 D.progressText.textContent = `키프레임 에셋 업로드 중...`;
+            },
+            renderResultsList() {
+                D.resultsListPlaceholder.classList.add('hidden');
+                D.resultsListContainer.innerHTML = '';
+                
+                const filteredData = AppState.filteredAnalyses;
 
-            async startSelectedMonitoring() {
-                this.ui.toggleModal('cameraSelectModal', false);
-                const selectedCheckboxes = Array.from(this.ui.dom.cameraList.querySelectorAll('input:checked'));
-                if (selectedCheckboxes.length === 0) {
-                    this.ui.updateStatus('선택된 카메라가 없습니다.', 'idle');
+                if (filteredData.length === 0) {
+                    D.resultsListPlaceholder.textContent = '선택한 필터에 해당하는 기록이 없습니다.';
+                    D.resultsListPlaceholder.classList.remove('hidden');
+                    D.paginationControls.innerHTML = '';
                     return;
                 }
 
-                const devicesToMonitor = selectedCheckboxes.map(cb => {
-                    const deviceId = cb.dataset.deviceId;
-                    const resSelect = this.ui.dom.cameraList.querySelector(`select[data-res-for="${deviceId}"]`);
-                    return { deviceId, resolution: resSelect.value };
-                });
+                const totalPages = Math.ceil(filteredData.length / C.ITEMS_PER_PAGE);
+                AppState.currentPage = Math.min(AppState.currentPage, totalPages || 1);
+                const startIndex = (AppState.currentPage - 1) * C.ITEMS_PER_PAGE;
+                const paginatedData = filteredData.slice(startIndex, startIndex + C.ITEMS_PER_PAGE);
 
-                await this.createSession();
-                this.setAppState('monitoring');
-                this.ui.updateStatus(`${devicesToMonitor.length}개의 카메라를 모니터링합니다.`, 'success');
-                this.ui.dom.blurLogTitle.textContent = '흐림 감지 로그 (현재 세션)';
-                this.ui.dom.debugPanel.classList.toggle('hidden', !this.ui.dom.debugModeCheckbox.checked);
-                this.ui.dom.cameraGrid.innerHTML = '';
-                devicesToMonitor.forEach((device, index) => this.setupCamera(device, index === 0));
-            }
-            
-            async setupCamera(device, isPrimary) {
-                this.cameraAnalysisData.set(device.deviceId, { scores: [], average: 0, lastPosition: null, wasScoreLow: false });
-                const card = this.ui.createCameraCard();
-                this.ui.dom.cameraGrid.appendChild(card.wrapper);
-                card.wrapper.dataset.device = JSON.stringify(device);
-                card.wrapper.dataset.isPrimary = isPrimary;
+                paginatedData.forEach(data => this.createResultItemElement(data));
+                this.renderPagination(totalPages, filteredData.length);
+            },
+            createResultItemElement(data) {
+                const item = document.createElement('div');
+                const dateString = data.timestamp ? new Date(data.timestamp.seconds * 1000).toLocaleString() : '날짜 없음';
+                const problemCount = (data.keyFrames || []).filter(kf => kf.manualOverride !== C.MANUAL_OVERRIDE.OK).length;
+                
+                const lock = data.lock;
+                const isStale = lock && lock.lockedAt && (Date.now() - lock.lockedAt.toDate().getTime()) > C.LOCK_TIMEOUT_MS;
+                const isLocked = lock && !isStale;
+                const isLockedByCurrentUser = isLocked && Firebase.auth.currentUser && lock.lockedBy === Firebase.auth.currentUser.uid;
+                const isLockedByOther = isLocked && !isLockedByCurrentUser;
 
-                const constraints = { video: { deviceId: { exact: device.deviceId } } };
-                if (device.resolution !== 'default') {
-                    const [width, height] = device.resolution.split('x').map(Number);
-                    constraints.video.width = { ideal: width };
-                    constraints.video.height = { ideal: height };
+                item.className = `result-item p-3 border-b flex justify-between items-center transition-colors duration-200`;
+                if (isLockedByOther) item.classList.add('locked');
+                if (isLockedByCurrentUser || data.id === AppState.currentLockedDocId) item.classList.add('selected');
+                if (data.correctionCompleted) item.classList.add('correction-completed');
+
+                item.dataset.analysisId = data.id;
+
+                let lockIcon = '';
+                if (isLockedByOther) lockIcon = `<svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" fill="currentColor" class="text-gray-500 mr-2 shrink-0" viewBox="0 0 16 16"><path d="M8 1a2 2 0 0 1 2 2v4H6V3a2 2 0 0 1 2-2m3 6V3a3 3 0 0 0-6 0v4a2 2 0 0 0-2 2v5a2 2 0 0 0 2 2h6a2 2 0 0 0 2-2V9a2 2 0 0 0-2-2"/></svg>`;
+                else if (isLockedByCurrentUser) lockIcon = `<svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" fill="currentColor" class="text-blue-600 mr-2 shrink-0" viewBox="0 0 16 16"><path d="M10.5 8a2.5 2.5 0 1 1-5 0 2.5 2.5 0 0 1 5 0"/><path d="M0 8s3-5.5 8-5.5S16 8 16 8s-3 5.5-8 5.5S0 8 0 8m1.173-1.173a14.3 14.3 0 0 1 1.66-2.043C4.12 3.4 5.88 2.5 8 2.5s3.879.9 5.168 2.287a14.3 14.3 0 0 1 1.66 2.043A14.3 14.3 0 0 1 16 8s-.9 1.88-2.287 3.173a14.3 14.3 0 0 1-1.66 2.043C11.879 14.6 10.12 15.5 8 15.5s-3.879-.9-5.168-2.287a14.3 14.3 0 0 1-1.66-2.043A14.3 14.3 0 0 1 0 8s.9-1.88 2.287-3.173Z"/></svg>`;
+
+                item.innerHTML = `
+                    <div class="flex-grow overflow-hidden flex items-center">
+                        <input type="checkbox" class="correction-checkbox h-5 w-5 mr-4 text-green-600 border-gray-300 rounded focus:ring-green-500 cursor-pointer shrink-0" ${data.correctionCompleted ? 'checked' : ''}>
+                        ${lockIcon}
+                        <div>
+                            <p class="font-medium file-name text-gray-800 truncate text-sm" title="${data.fileName}">${data.fileName}</p>
+                            <p class="text-xs text-gray-500">${dateString}</p>
+                        </div>
+                    </div>
+                    <div class="flex items-center ml-2 shrink-0">
+                        <span class="inline-block bg-gray-200 text-gray-800 text-xs font-semibold mr-4 px-2.5 py-0.5 rounded-full">${data.table || 'N/A'}</span>
+                        <div class="text-sm font-semibold ${problemCount > 0 ? 'text-red-500' : 'text-green-600'} w-28 text-right">문제 프레임: ${problemCount}개</div>
+                        <button class="delete-analysis-button ml-4 text-gray-400 hover:text-red-600 p-2 rounded-full hover:bg-red-100 transition-colors">
+                            <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" fill="currentColor" viewBox="0 0 16 16" class="pointer-events-none">
+                                <path d="M11 1.5v1h3.5a.5.5 0 0 1 0 1h-.538l-.853 10.66A2 2 0 0 1 11.115 16h-6.23a2 2 0 0 1-1.994-1.84L2.038 3.5H1.5a.5.5 0 0 1 0-1H5v-1A1.5 1.5 0 0 1 6.5 0h3A1.5 1.5 0 0 1 11 1.5m-5 0v1h4v-1a.5.5 0 0 0-.5-.5h-3a.5.5 0 0 0-.5.5M4.5 5.029l.5 8.5a.5.5 0 1 0 .998-.06l-.5-8.5a.5.5 0 1 0-.998.06m3.5.029l.5 8.5a.5.5 0 1 0 .998-.06l-.5-8.5a.5.5 0 1 0-.998.06m3.5-.029l.5 8.5a.5.5 0 1 0 .998-.06l-.5-8.5a.5.5 0 1 0-.998.06"/>
+                            </svg>
+                        </button>
+                    </div>`;
+                D.resultsListContainer.appendChild(item);
+            },
+            renderPagination(totalPages, totalItems) {
+                D.paginationControls.innerHTML = '';
+                if (totalItems <= C.ITEMS_PER_PAGE) return;
+                for (let i = 1; i <= totalPages; i++) {
+                    const button = document.createElement('button');
+                    button.textContent = i;
+                    button.className = `px-3 py-1 rounded-md text-sm transition-colors ${i === AppState.currentPage ? 'bg-blue-600 text-white' : 'bg-gray-200 text-gray-700 hover:bg-gray-300'}`;
+                    button.onclick = () => { AppState.currentPage = i; this.renderResultsList(); };
+                    D.paginationControls.appendChild(button);
                 }
-                this.addDebugLog('Requesting camera with constraints', 'INFO', constraints);
-
-                try {
-                    const stream = await navigator.mediaDevices.getUserMedia(constraints);
-                    this.activeStreams.push(stream);
-                    card.video.srcObject = stream;
-                    const deviceInfo = (await navigator.mediaDevices.enumerateDevices()).find(d => d.deviceId === device.deviceId);
-                    card.nameEl.textContent = deviceInfo.label || `카메라 ${this.activeStreams.length}`;
-                    card.captureButton.onclick = () => this.handleManualCapture(card);
-                    card.video.onplaying = () => this.onMediaPlaying(card, device.deviceId, isPrimary);
-                } catch (err) {
-                    this.addDebugLog(`Failed to get stream for ${device.deviceId}`, 'ERROR', err);
-                    this.handleAnalysisError(card);
+            },
+            renderDetailedView(analysis) {
+                if (!analysis) {
+                    D.detailsSection.classList.add('hidden');
+                    return;
                 }
-            }
+                D.detailsSection.classList.remove('hidden');
+                D.detailsTitle.querySelector('span').textContent = `3. 상세 분석: ${analysis.fileName}`;
+                this.renderDetailChart(analysis);
+                this.renderKeyFramesForDetail(analysis);
+                D.detailsSection.scrollIntoView({ behavior: 'smooth' });
+            },
+            renderDetailChart(analysisData) {
+                if (AppState.detailChart) AppState.detailChart.destroy();
+                
+                const frameScores = analysisData.frameScores || [];
+                const keyFrames = analysisData.keyFrames || [];
 
-            onMediaPlaying(card, deviceId, isPrimary) {
-                this.addDebugLog(`Media started for ${deviceId}`);
-                Object.assign(card.processCanvas, { width: card.video.videoWidth, height: card.video.videoHeight });
-                Object.assign(card.overlayCanvas, { width: card.video.videoWidth, height: card.video.videoHeight });
-                card.originalResolutionEl.textContent = `원본: ${card.video.videoWidth}x${card.video.videoHeight}`;
-                this.startAnalysisLoop(card, deviceId, isPrimary);
-            }
+                const blurryPoints = keyFrames.filter(kf => kf.manualOverride !== C.MANUAL_OVERRIDE.OK).map(kf => ({x: kf.time, y: frameScores.find(fs => fs.time === kf.time)?.score || 0}));
+                const okPoints = keyFrames.filter(kf => kf.manualOverride === C.MANUAL_OVERRIDE.OK).map(kf => ({x: kf.time, y: frameScores.find(fs => fs.time === kf.time)?.score || 0}));
 
-            stopAllMonitoring() {
-                if (this.appState !== 'monitoring') return;
-                this.activeStreams.forEach(s => s.getTracks().forEach(t => t.stop()));
-                this.activeStreams = [];
-                this.analysisLoops.forEach(id => cancelAnimationFrame(id));
-                this.analysisLoops.clear();
-                this.cameraAnalysisData.clear();
-                this.ui.dom.cameraGrid.innerHTML = '';
-                this.ui.dom.blurLogPanel.classList.add('hidden');
-                this.currentSessionId = null;
-                this.sessionLogEntries = [];
-                this.setAppState('stopped');
-                this.addDebugLog('All monitoring stopped.', 'SUCCESS');
-            }
-            
-            startAnalysisLoop(card, deviceId, isPrimary) {
-                const processCtx = card.processCanvas.getContext('2d', { willReadFrequently: true });
-                let alertState = { active: false, lastAlertTime: 0 };
-                const analysisData = this.cameraAnalysisData.get(deviceId);
-                let lastClearFrame = { fullFrameUrl: null, croppedFaceUrl: null, score: 0 };
-                const frameCaptureCanvas = document.createElement('canvas');
+                AppState.detailChart = new Chart(D.detailChart, {
+                    type: 'line',
+                    data: {
+                        datasets: [
+                            { label: '선명도', data: frameScores.map(fs => ({x: fs.time, y: fs.score})), borderColor: 'rgba(59, 130, 246, 0.5)', borderWidth: 1.5, pointRadius: 0, tension: 0.4 },
+                            { label: '흐림 감지', data: blurryPoints, backgroundColor: 'rgb(239, 68, 68)', pointRadius: 5, pointHoverRadius: 7, type: 'scatter' },
+                            { label: '수동 확인 (OK)', data: okPoints, backgroundColor: 'rgb(34, 197, 94)', pointRadius: 5, pointHoverRadius: 7, type: 'scatter' }
+                        ]
+                    },
+                    options: {
+                        responsive: true, maintainAspectRatio: false,
+                        scales: { x: { type: 'linear', title: { display: true, text: '시간 (초)' } }, y: { title: { display: true, text: '선명도 점수' } } },
+                        plugins: { legend: { position: 'top' }, tooltip: { enabled: true } },
+                        onHover: (event, chartElement) => {
+                            D.detailChart.style.cursor = 'default';
+                            document.querySelectorAll('.key-frame-item.highlighted').forEach(el => el.classList.remove('highlighted'));
 
-                const loop = () => {
-                    if (!this.analysisLoops.has(deviceId)) return;
-                    try {
-                        if (!card.video.srcObject?.active || card.video.paused || card.video.videoWidth === 0) {
-                            this.analysisLoops.delete(deviceId); return;
-                        }
-                        const detections = this.faceDetector.detectForVideo(card.video, performance.now()).detections;
-                        const overlayCtx = card.overlayCanvas.getContext('2d');
-                        overlayCtx.clearRect(0, 0, card.overlayCanvas.width, card.overlayCanvas.height);
-                        
-                        if (detections.length > 0) {
-                            const mainFace = this.getCentermostFace(detections, card.video.videoWidth, card.video.videoHeight);
-                            if (!mainFace) { analysisData.lastPosition = null; requestAnimationFrame(loop); return; }
-                            const box = mainFace.boundingBox;
-                            processCtx.drawImage(card.video, 0, 0, card.processCanvas.width, card.processCanvas.height);
-                            const faceImageData = processCtx.getImageData(Math.max(0, box.originX), Math.max(0, box.originY), Math.min(card.processCanvas.width - box.originX, box.width), Math.min(card.processCanvas.height - box.originY, box.height));
-                            const score = this.calculateFocusScore(faceImageData);
-                            const currentCenter = { x: box.originX + box.width / 2, y: box.originY + box.height / 2 };
-                            const movementDistance = analysisData.lastPosition ? Math.hypot(currentCenter.x - analysisData.lastPosition.x, currentCenter.y - analysisData.lastPosition.y) : 0;
-                            analysisData.lastPosition = currentCenter;
-                            const isStationary = movementDistance < 5.0;
-                            let isScoreLow;
-                            if (this.ui.dom.autoThresholdCheckbox.checked) {
-                                analysisData.scores.push(score);
-                                if (analysisData.scores.length > 50) analysisData.scores.shift();
-                                const avg = analysisData.scores.length > 30 ? analysisData.scores.reduce((a, b) => a + b, 0) / analysisData.scores.length : 0;
-                                isScoreLow = avg > 0 && score < avg * (parseFloat(this.ui.dom.sensitivityInput.value) / 100);
-                                card.scoreEl.textContent = `${score.toFixed(1)} / ${avg.toFixed(1)}`;
-                            } else {
-                                isScoreLow = score < parseFloat(this.ui.dom.thresholdInput.value);
-                                card.scoreEl.textContent = score.toFixed(1);
-                            }
-                            
-                            const isBlurry = isScoreLow && !analysisData.wasScoreLow && isStationary;
-                            analysisData.wasScoreLow = isScoreLow;
-
-                            card.scoreEl.classList.toggle('text-red-500', isScoreLow);
-                            
-                            if (isBlurry) {
-                                if (!alertState.active && (performance.now() - alertState.lastAlertTime > 1000)) {
-                                    alertState = { active: true, lastAlertTime: performance.now() };
-                                    card.wrapper.classList.add('alert');
-                                    this.playAlertSound();
-                                    if (isPrimary) this.captureAndLogAsync(card.video, detections, mainFace, score, lastClearFrame, frameCaptureCanvas);
+                            if (chartElement.length > 0) {
+                                const element = chartElement[0];
+                                if (element.datasetIndex === 1 || element.datasetIndex === 2) {
+                                    D.detailChart.style.cursor = 'pointer';
+                                    const timeValue = AppState.detailChart.data.datasets[element.datasetIndex].data[element.index].x;
+                                    const targetFrame = D.keyFramesContainer.querySelector(`.key-frame-item[data-time="${timeValue}"]`);
+                                    if (targetFrame) {
+                                        targetFrame.classList.add('highlighted');
+                                        targetFrame.scrollIntoView({ behavior: 'smooth', block: 'center' });
+                                    }
                                 }
-                            } else {
-                                if (alertState.active) card.wrapper.classList.remove('alert');
-                                alertState.active = false;
                             }
-                            
-                            this.updateLastClearFrameAsync(lastClearFrame, card.video, detections, mainFace, score, frameCaptureCanvas);
-                            this.drawDetections(overlayCtx, detections, mainFace, isBlurry, card.video);
-                        } else {
-                            card.scoreEl.textContent = '얼굴 미검출';
-                            analysisData.lastPosition = null;
-                        }
-                        requestAnimationFrame(loop);
-                    } catch (error) {
-                        this.addDebugLog("Analysis loop error", "ERROR", error);
-                        this.handleAnalysisError(card);
+                        },
                     }
-                };
-                this.analysisLoops.set(deviceId, requestAnimationFrame(loop));
-            }
-
-            handleAnalysisError(card) {
-                const deviceId = JSON.parse(card.wrapper.dataset.device).deviceId;
-                this.analysisLoops.delete(deviceId);
-                const errorOverlay = document.createElement('div');
-                errorOverlay.className = 'absolute inset-0 bg-black bg-opacity-75 flex flex-col items-center justify-center gap-2';
-                errorOverlay.innerHTML = `<p class="text-yellow-400 font-bold">분석 오류, 2초 후 재시작합니다...</p>`;
-                card.videoContainer.appendChild(errorOverlay);
-
-                setTimeout(() => {
-                    const device = JSON.parse(card.wrapper.dataset.device);
-                    const isPrimary = card.wrapper.dataset.isPrimary === 'true';
-                    card.wrapper.remove();
-                    this.setupCamera(device, isPrimary);
-                }, 2000);
-            }
-            
-            handleManualCapture(card) {
-                const video = card.video;
-                if (!video.srcObject?.active || video.paused || video.videoWidth === 0) {
-                    this.addDebugLog('Cannot capture, video not active.', 'WARN');
+                });
+            },
+            renderKeyFramesForDetail(analysisData) {
+                D.keyFramesContainer.innerHTML = '';
+                const keyFrames = analysisData.keyFrames || [];
+                if (keyFrames.length === 0) {
+                    D.keyFramesContainer.innerHTML = `<p id="key-frames-placeholder" class="text-gray-500 text-center py-4">감지된 문제 프레임이 없습니다.</p>`;
                     return;
                 }
-                const detections = this.faceDetector.detectForVideo(video, performance.now()).detections;
-                if (detections.length === 0) {
-                    alert('얼굴이 감지되지 않아 추출할 수 없습니다.');
-                    return;
-                }
-                const mainFace = this.getCentermostFace(detections, video.videoWidth, video.videoHeight);
-                if (!mainFace) return;
 
-                const processCtx = card.processCanvas.getContext('2d');
-                processCtx.drawImage(video, 0, 0, card.processCanvas.width, card.processCanvas.height);
-                const box = mainFace.boundingBox;
-                const faceImageData = processCtx.getImageData(Math.max(0, box.originX), Math.max(0, box.originY), Math.min(card.processCanvas.width - box.originX, box.width), Math.min(card.processCanvas.height - box.originY, box.height));
-                const score = this.calculateFocusScore(faceImageData);
-                
-                const frameCaptureCanvas = document.createElement('canvas');
-                this.captureAndLogAsync(video, detections, mainFace, score, { type: 'manual' }, frameCaptureCanvas);
-            }
+                keyFrames.sort((a, b) => a.time - b.time).forEach(data => {
+                    const isOverridden = data.manualOverride === C.MANUAL_OVERRIDE.OK;
+                    const item = document.createElement('div');
+                    item.className = 'key-frame-item p-4 bg-gray-50 rounded-lg shadow-inner border space-y-4 transition-all duration-300';
+                    item.dataset.time = data.time;
 
-            async captureAndLogAsync(video, detections, mainFace, score, lastClearFrame, canvas) {
-                const blurryFrameUrl = await this.captureFrameAsync(video, detections, canvas, mainFace);
-                const croppedBlurryFaceUrl = await this.captureFrameAsync(video, [mainFace], canvas, mainFace, true);
-
-                this.saveBlurLog({
-                    type: lastClearFrame.type || 'auto',
-                    timestamp: new Date().toLocaleTimeString(),
-                    clearFrameUrl: lastClearFrame.fullFrameUrl,
-                    blurryFrameUrl,
-                    croppedClearFaceUrl: lastClearFrame.croppedFaceUrl,
-                    croppedBlurryFaceUrl,
-                    clearScore: lastClearFrame.score,
-                    blurryScore: score
+                    item.innerHTML = `
+                        <h4 class="font-bold text-md">@ ${data.time.toFixed(2)}초</h4>
+                        <div class="grid grid-cols-2 gap-4">
+                            <div>
+                                <p class="text-xs font-semibold text-green-600 mb-1">이전 프레임 (전체) - 점수: ${data.sharpScore?.toFixed(2) ?? 'N/A'}</p>
+                                <img src="${data.sharpFullUrl}" class="w-full rounded-md border" loading="lazy" onerror="this.src='https://placehold.co/400x225/e2e8f0/475569?text=Image+Error'">
+                                <p class="text-xs font-semibold text-green-600 mt-2 mb-1">이전 프레임 (얼굴)</p>
+                                <img src="${data.sharpCroppedUrl || 'https://placehold.co/300x200/e2e8f0/475569?text=No+Face'}" class="w-full rounded-md border" loading="lazy" onerror="this.src='https://placehold.co/300x200/e2e8f0/475569?text=Image+Error'">
+                            </div>
+                            <div>
+                                <p class="text-xs font-semibold ${isOverridden ? 'text-green-600' : 'text-red-600'} mb-1">문제 프레임 (전체) - 점수: ${data.blurryScore?.toFixed(2) ?? 'N/A'}</p>
+                                <img src="${data.blurryFullUrl}" class="w-full rounded-md border" loading="lazy" onerror="this.src='https://placehold.co/400x225/e2e8f0/475569?text=Image+Error'">
+                                <p class="text-xs font-semibold ${isOverridden ? 'text-green-600' : 'text-red-600'} mt-2 mb-1">문제 프레임 (얼굴)</p>
+                                <img src="${data.blurryCroppedUrl || 'https://placehold.co/300x200/e2e8f0/475569?text=No+Face'}" class="w-full rounded-md border" loading="lazy" onerror="this.src='https://placehold.co/300x200/e2e8f0/475569?text=Image+Error'">
+                            </div>
+                        </div>
+                        <button data-action="ok" class="manual-override-button w-full px-4 py-2 bg-green-600 text-white rounded-lg hover:bg-green-700 text-sm ${isOverridden ? 'hidden' : ''}">이 프레임은 문제 없음</button>
+                        <button data-action="problem" class="manual-override-button w-full px-4 py-2 bg-yellow-500 text-white rounded-lg hover:bg-yellow-600 text-sm ${!isOverridden ? 'hidden' : ''}">문제 프레임으로 되돌리기</button>
+                    `;
+                    D.keyFramesContainer.appendChild(item);
                 });
             }
+        };
 
-            async updateLastClearFrameAsync(frameObject, video, detections, mainFace, score, canvas) {
-                frameObject.score = score;
-                const fullFrameUrlPromise = this.captureFrameAsync(video, detections, canvas, mainFace);
-                const croppedFaceUrlPromise = this.captureFrameAsync(video, [mainFace], canvas, mainFace, true);
-                const [fullUrl, croppedUrl] = await Promise.all([fullFrameUrlPromise, croppedFaceUrlPromise]);
-                frameObject.fullFrameUrl = fullUrl;
-                frameObject.croppedFaceUrl = croppedUrl;
-            }
-
-            captureFrameAsync(video, detections, canvas, mainFace = null, cropToFace = false) {
-                return new Promise(resolve => {
-                    const box = cropToFace && mainFace ? mainFace.boundingBox : { originX: 0, originY: 0, width: video.videoWidth, height: video.videoHeight };
-                    canvas.width = box.width;
-                    canvas.height = box.height;
-                    const ctx = canvas.getContext('2d');
-                    if(box.width > 0 && box.height > 0) {
-                        ctx.drawImage(video, box.originX, box.originY, box.width, box.height, 0, 0, box.width, box.height);
-                        if (!cropToFace) this.drawDetections(ctx, detections, mainFace, !!mainFace, video);
-                    }
-                    canvas.toBlob(blob => {
-                        if (!blob) { resolve(null); return; }
-                        const reader = new FileReader();
-                        reader.onloadend = () => resolve(reader.result);
-                        reader.onerror = () => resolve(null);
-                        reader.readAsDataURL(blob);
-                    }, 'image/jpeg', 0.8);
-                });
-            }
-
-            drawDetections(ctx, detections, mainFace, isBlurry, video) {
-                const isCropped = ctx.canvas.width !== video.videoWidth || ctx.canvas.height !== video.videoHeight;
-                detections.forEach(detection => {
-                    const box = detection.boundingBox;
-                    if (!box) return;
-                    const isMain = detection === mainFace;
-                    ctx.strokeStyle = isMain && isBlurry ? '#ef4444' : '#3b82f6';
-                    ctx.lineWidth = isMain ? 4 : 2;
-                    const offsetX = isCropped ? -box.originX : 0;
-                    const offsetY = isCropped ? -box.originY : 0;
-                    ctx.strokeRect(box.originX + offsetX, box.originY + offsetY, box.width, box.height);
-                });
-            }
-
-            calculateFocusScore(imageData) {
-                const { width, height, data } = imageData;
-                if (width * height === 0) return 0;
-                const gray = new Uint8Array(width * height);
-                for (let i = 0; i < data.length; i += 4) gray[i / 4] = 0.299 * data[i] + 0.587 * data[i + 1] + 0.114 * data[i + 2];
-                let variance = 0, count = 0;
-                for (let y = 1; y < height - 1; y++) {
-                    for (let x = 1; x < width - 1; x++) {
-                        const i = y * width + x;
-                        const laplacian = gray[i - width] + gray[i + width] + gray[i - 1] + gray[i + 1] - 4 * gray[i];
-                        variance += laplacian * laplacian;
-                        count++;
-                    }
-                }
-                return count > 0 ? variance / count : 0;
-            }
-
-            getCentermostFace(detections, videoWidth, videoHeight) {
-                if (!detections || detections.length < 2) return detections?.[0] || null;
-                const center = { x: videoWidth / 2, y: videoHeight / 2 };
-                return detections.reduce((closest, current) => {
-                    const distA = Math.hypot(center.x - (closest.boundingBox.originX + closest.boundingBox.width / 2), center.y - (closest.boundingBox.originY + closest.boundingBox.height / 2));
-                    const distB = Math.hypot(center.x - (current.boundingBox.originX + current.boundingBox.width / 2), center.y - (current.boundingBox.originY + current.boundingBox.height / 2));
-                    return distB < distA ? current : closest;
-                });
-            }
-
-            saveSettings() {
-                const settings = {
-                    autoThreshold: this.ui.dom.autoThresholdCheckbox.checked,
-                    threshold: this.ui.dom.thresholdInput.value,
-                    sensitivity: this.ui.dom.sensitivityInput.value,
-                    mute: this.ui.dom.muteCheckbox.checked,
-                    debug: this.ui.dom.debugModeCheckbox.checked,
-                };
-                localStorage.setItem(this.SETTINGS_KEY, JSON.stringify(settings));
-            }
-
-            loadSettings() {
-                const settings = JSON.parse(localStorage.getItem(this.SETTINGS_KEY) || '{}');
-                this.ui.dom.autoThresholdCheckbox.checked = settings.autoThreshold ?? false;
-                this.ui.dom.thresholdInput.value = settings.threshold ?? 40;
-                this.ui.dom.thresholdSlider.value = settings.threshold ?? 40;
-                this.ui.dom.sensitivityInput.value = settings.sensitivity ?? 75;
-                this.ui.dom.sensitivitySlider.value = settings.sensitivity ?? 75;
-                this.ui.dom.muteCheckbox.checked = settings.mute ?? false;
-                this.ui.dom.debugModeCheckbox.checked = settings.debug ?? true;
-                this.ui.dom.debugPanel.classList.toggle('hidden', !this.ui.dom.debugModeCheckbox.checked);
-            }
-
-            async createSession() {
-                this.sessionLogEntries = [];
-                if (!this.isDbAvailable) return;
-                this.currentSessionId = Date.now();
-                await this.dbManager.add('sessions', { id: this.currentSessionId, startTime: new Date().toLocaleString() });
-                await this.loadSessions();
-                this.ui.dom.sessionSelect.value = this.currentSessionId;
-            }
-
-            async saveBlurLog(logEntry) {
-                const newEntry = { ...logEntry };
-                if (this.isDbAvailable && this.currentSessionId) {
-                    try {
-                        const newId = await this.dbManager.add('blurLogs', { ...newEntry, sessionId: this.currentSessionId });
-                        newEntry.id = newId;
-                    } catch (error) {
-                        this.addDebugLog('Failed to save log to DB.', 'ERROR', error);
-                    }
-                }
-                this.sessionLogEntries.unshift(newEntry);
-                this.ui.renderBlurLog(this.sessionLogEntries, (entry) => this.handleDeleteLog(entry));
-            }
-
-            async loadSessions() {
-                if (!this.isDbAvailable) return;
-                const sessions = await this.dbManager.getAll('sessions');
-                const select = this.ui.dom.sessionSelect;
-                select.innerHTML = '<option value="">세션 기록 선택...</option>';
-                sessions.sort((a, b) => b.id - a.id).forEach(session => select.add(new Option(session.startTime, session.id)));
-            }
+        // ================================================================
+        // VIRTUAL MODULE: main.js (Application Orchestrator)
+        // ================================================================
+        
+        function initialize() {
+            initDom();
+            D.versionDisplay.textContent = `v${C.APP_VERSION}`;
+            document.title = `포커스 이슈 탐지기 - v${C.APP_VERSION}`;
+            setupEventListeners();
             
-            async handleSessionChange(e) {
-                if (!this.isDbAvailable) return;
-                const sessionId = e.target.value;
-                if (sessionId) {
-                    const sessionText = e.target.options[e.target.selectedIndex].text;
-                    this.ui.dom.blurLogTitle.textContent = `흐림 감지 로그 (${sessionText})`;
-                    this.sessionLogEntries = (await this.dbManager.getAllFromIndex('blurLogs', 'sessionId', Number(sessionId))).reverse();
-                    this.ui.renderBlurLog(this.sessionLogEntries, (entry) => this.handleDeleteLog(entry));
-                } else {
-                    this.ui.dom.blurLogTitle.textContent = '흐림 감지 로그';
-                    this.sessionLogEntries = [];
-                    this.ui.renderBlurLog(this.sessionLogEntries, (entry) => this.handleDeleteLog(entry));
-                }
+            const fbInit = Firebase.init(handleAuthReady);
+            if (fbInit.success) {
+                D.connectionStatus.textContent = `연결 상태: 연결 성공 (${fbInit.projectId})`;
+                D.connectionStatus.className = 'text-sm text-green-600 mt-1';
+                ui.appendLog(`Firebase 연결 성공 (Project: ${fbInit.projectId})`, 'text-green-500');
+            } else {
+                 D.connectionStatus.textContent = `오류: Firebase 초기화 실패: ${fbInit.error.message}`;
+                 D.connectionStatus.className = 'text-sm text-red-600 mt-1';
+                 ui.appendLog(`Firebase 초기화 오류: ${fbInit.error.message}`, 'text-red-500');
             }
+            loadModels();
+        }
+
+        function handleAuthReady(user) {
+            ui.appendLog(`인증 완료 (UID: ${user.uid})`, 'text-green-500');
+            api.listenForAnalyses((analyses) => {
+                AppState.allAnalyses = analyses;
+                filterAndRenderResults();
+                const currentAnalysis = AppState.allAnalyses.find(a => a.id === AppState.currentLockedDocId);
+                if (currentAnalysis) {
+                    ui.renderDetailedView(currentAnalysis);
+                }
+                ui.appendLog(`데이터베이스로부터 ${analyses.length}개 기록 수신.`, 'text-blue-400');
+            });
+        }
+        
+        async function loadModels() {
+            try {
+                await faceapi.nets.ssdMobilenetv1.loadFromUri(C.MODEL_WEIGHTS_URL);
+                AppState.modelsLoaded = true;
+                D.modelStatus.textContent = '얼굴 인식 모델 로딩 완료!';
+                D.modelStatus.className = 'text-sm text-green-600 mt-1';
+                ui.updateAnalyzeButtonState();
+            } catch (error) {
+                D.modelStatus.textContent = '모델 로딩 실패';
+                ui.appendLog(`모델 로딩 실패: ${error.message}`, 'text-red-500');
+            }
+        }
+        
+        function setupEventListeners() {
+             D.videoFilesInput.addEventListener('change', () => ui.updateAnalyzeButtonState());
+             D.analyzeButton.addEventListener('click', startAnalysis);
+             D.cancelUploadBtn.addEventListener('click', cancelAnalysis);
+             D.resultsListContainer.addEventListener('click', handleResultListClick);
+             D.keyFramesContainer.addEventListener('click', handleKeyFrameClick);
+             [D.yearFilter, D.eventTypeFilter, D.dayFilter, D.tableFilter].forEach(filter => {
+                filter.addEventListener('change', handleFilterChange);
+             });
+             // Test Modal Listeners
+             D.showUploadTestBtn.addEventListener('click', () => D.uploadTestModalOverlay.classList.remove('hidden'));
+             D.closeTestModalBtn.addEventListener('click', () => D.uploadTestModalOverlay.classList.add('hidden'));
+             D.uploadTestModalOverlay.addEventListener('click', (e) => {
+                if (e.target === D.uploadTestModalOverlay) D.uploadTestModalOverlay.classList.add('hidden');
+             });
+             D.startStorageTestBtn.addEventListener('click', handleStorageTest);
+             D.startFirestoreTestBtn.addEventListener('click', handleFirestoreTest);
+        }
+        
+        function filterAndRenderResults() {
+             AppState.filteredAnalyses = AppState.allAnalyses.filter(item => {
+                const { year, eventType, day, table } = AppState.filters;
+                const yearMatch = year === C.FILTER_ALL || String(item.year) === year;
+                const eventTypeMatch = eventType === C.FILTER_ALL || item.eventType === eventType;
+                const dayMatch = day === C.FILTER_ALL || item.day === day;
+                const tableMatch = table === C.FILTER_ALL || item.table === table;
+                return yearMatch && eventTypeMatch && dayMatch && tableMatch;
+            });
+            ui.renderResultsList();
+        }
+
+        function handleFilterChange(e) {
+            const filterId = e.target.id;
+            const key = filterId.replace('-filter', '');
+            AppState.filters[key] = e.target.value;
+            AppState.currentPage = 1;
+            filterAndRenderResults();
+        }
+
+        async function handleResultListClick(e) {
+            const resultItem = e.target.closest('.result-item');
+            if (!resultItem) return;
+            const analysisId = resultItem.dataset.analysisId;
+            const analysis = AppState.allAnalyses.find(a => a.id === analysisId);
             
-            async handleDeleteLog(entryToDelete) {
-                const index = this.sessionLogEntries.findIndex(entry => entry === entryToDelete);
-                if (index > -1) {
-                    this.sessionLogEntries.splice(index, 1);
-                    if (this.isDbAvailable && entryToDelete.id) {
-                        await this.dbManager.delete('blurLogs', entryToDelete.id);
-                        this.addDebugLog(`Deleted log entry with id: ${entryToDelete.id}`, 'INFO');
-                    }
-                    this.ui.renderBlurLog(this.sessionLogEntries, (entry) => this.handleDeleteLog(entry));
-                }
+            if (e.target.classList.contains('correction-checkbox')) {
+                await api.updateAnalysis(analysisId, { correctionCompleted: e.target.checked });
+                return;
             }
+            if (e.target.closest('.delete-analysis-button')) {
+                // await handleDeleteAnalysis(analysis);
+                return;
+            }
+            if (resultItem.classList.contains('locked')) return;
+            if (analysisId === AppState.currentLockedDocId) return;
 
-            async clearCurrentSessionLogs() {
-                const selectedSessionId = this.ui.dom.sessionSelect.value;
-                if (this.isDbAvailable && selectedSessionId) {
-                    await this.dbManager.deleteFromIndex('blurLogs', 'sessionId', Number(selectedSessionId));
-                }
-                this.sessionLogEntries = [];
-                this.ui.renderBlurLog(this.sessionLogEntries, (entry) => this.handleDeleteLog(entry));
-            }
-
-            clearAllData() {
-                if (!this.isDbAvailable) return;
-                this.ui.showConfirm('모든 기록 삭제', '모든 세션과 로그를 삭제하시겠습니까?', async () => {
-                    await this.dbManager.clearStore('sessions');
-                    await this.dbManager.clearStore('blurLogs');
-                    await this.loadSessions();
-                    this.ui.renderBlurLog([], (entry) => this.handleDeleteLog(entry));
-                    this.addDebugLog('All data has been cleared.', 'WARN');
-                });
-            }
-            
-            downloadSessionLog() {
-                if (this.sessionLogEntries.length === 0) { alert('다운로드할 로그가 없습니다.'); return; }
-                const simplifiedLogs = this.sessionLogEntries.map(log => ({ timestamp: log.timestamp, clearScore: log.clearScore, blurryScore: log.blurryScore }));
-                const blob = new Blob([JSON.stringify(simplifiedLogs, null, 2)], { type: 'text/plain' });
-                const url = URL.createObjectURL(blob);
-                const a = Object.assign(document.createElement('a'), { href: url, download: `focus_log_${new Date().toISOString()}.txt` });
-                document.body.appendChild(a).click();
-                document.body.removeChild(a);
-                URL.revokeObjectURL(url);
-            }
-
-            addDebugLog(message, level = 'INFO', data = null) {
-                let processedData = null;
-                if (data) {
-                    if (data instanceof Error) {
-                        processedData = JSON.stringify({ name: data.name, message: data.message, stack: data.stack?.split('\n').map(s => s.trim()) });
-                    } else {
-                        processedData = JSON.stringify(data);
-                    }
-                }
-                const logEntry = { timestamp: new Date().toLocaleTimeString(), level, message, data: processedData };
-                this.debugLogEntries.push(logEntry);
-                if (this.debugLogEntries.length > this.MAX_DEBUG_LOGS) this.debugLogEntries.shift();
-                this.renderDebugLog();
-            }
-
-            renderDebugLog() {
-                if (!this.ui.dom.debugLogContainer) return;
-                this.ui.dom.debugLogContainer.innerHTML = '';
-                const colorMap = { 'SUCCESS': 'text-green-400', 'ERROR': 'text-red-400', 'WARN': 'text-yellow-400' };
-                this.debugLogEntries.forEach(log => {
-                    const pre = document.createElement('pre');
-                    pre.className = `p-1 rounded ${colorMap[log.level] || 'text-gray-400'}`;
-                    pre.textContent = `[${log.timestamp}][${log.level}] ${log.message}`;
-                    if (log.data) pre.textContent += `\n  Data: ${log.data}`;
-                    this.ui.dom.debugLogContainer.prepend(pre);
-                });
-                if (!this.userHasScrolledDebug) this.ui.dom.debugLogContainer.scrollTop = 0;
-            }
-
-            clearDebugLogs() {
-                this.debugLogEntries = [];
-                this.renderDebugLog();
-            }
-
-            startAudioContext() {
-                if (!this.audioContextStarted && Tone.context.state !== 'running') {
-                    Tone.start().catch(e => console.error("Could not start audio context", e));
-                    this.audioContextStarted = true;
-                }
-            }
-
-            playAlertSound() {
-                if (this.ui.dom.muteCheckbox.checked) return;
-                this.startAudioContext();
-                this.synth.triggerAttackRelease("C5", "8n");
+            await api.releaseLock(AppState.currentLockedDocId);
+            const lockAcquired = await api.acquireLock(analysisId);
+            if (lockAcquired) {
+                AppState.currentLockedDocId = analysisId;
+                ui.renderDetailedView(analysis);
+                filterAndRenderResults();
             }
         }
 
-        window.addEventListener('DOMContentLoaded', () => {
-            new FocusMonitorApp();
-        });
+        async function handleKeyFrameClick(e) {
+            const button = e.target.closest('.manual-override-button');
+            if (!button) return;
+            const keyFrameItem = button.closest('.key-frame-item');
+            const time = parseFloat(keyFrameItem.dataset.time);
+            const action = button.dataset.action;
+            const analysisId = AppState.currentLockedDocId;
+            
+            const analysis = AppState.allAnalyses.find(a => a.id === analysisId);
+            if (!analysis) return;
+
+            const updatedKeyFrames = analysis.keyFrames.map(kf => {
+                if (kf.time === time) {
+                    if (action === 'ok') return { ...kf, manualOverride: C.MANUAL_OVERRIDE.OK };
+                    const { manualOverride, ...rest } = kf;
+                    return rest;
+                }
+                return kf;
+            });
+            await api.updateAnalysis(analysisId, { keyFrames: updatedKeyFrames });
+        }
+
+        function startAnalysis() {
+            const files = Array.from(D.videoFilesInput.files);
+            if (files.length === 0) return;
+            ui.setLoadingState(true);
+            
+            const workerScript = document.getElementById('analysis-worker-script').textContent;
+            const workerBlob = new Blob([workerScript], { type: 'application/javascript' });
+            AppState.analysisWorker = new Worker(URL.createObjectURL(workerBlob));
+            
+            AppState.analysisWorker.onmessage = handleWorkerMessage;
+            AppState.analysisWorker.onerror = (e) => {
+                ui.appendLog(`워커 오류: ${e.message}`, 'text-red-500');
+                ui.setLoadingState(false);
+            };
+
+            const file = files[0];
+            const options = {
+                threshold: parseFloat(D.thresholdSlider.value),
+                faceApiUrl: C.MODEL_URL,
+                modelUrl: C.MODEL_WEIGHTS_URL,
+                detectionCanvasWidth: C.DETECTION_CANVAS_WIDTH,
+                fileIndex: 0,
+                totalFiles: files.length
+            };
+            AppState.analysisWorker.postMessage({ file, options });
+        }
+
+        function cancelAnalysis() {
+            if (AppState.analysisWorker) {
+                AppState.analysisWorker.terminate();
+                AppState.analysisWorker = null;
+                ui.appendLog('사용자에 의해 분석이 중단되었습니다.', 'text-yellow-500');
+                ui.setLoadingState(false);
+            }
+        }
+        
+        async function handleWorkerMessage(event) {
+            const { type, payload } = event.data;
+            switch(type) {
+                case 'progress': ui.updateAnalysisProgress(payload); break;
+                case 'log': ui.appendLog(payload.message, payload.color, 'WORKER'); break;
+                case 'result':
+                    ui.appendLog('영상 분석 완료. 결과 업로드를 시작합니다.', 'text-green-500');
+                    await uploadAnalysisResult(payload);
+                    if(AppState.analysisWorker) AppState.analysisWorker.terminate();
+                    AppState.analysisWorker = null;
+                    ui.setLoadingState(false);
+                    break;
+                case 'error':
+                    ui.appendLog(`분석 워커 오류: ${payload.message}`, 'text-red-500');
+                    console.error("Worker error stack:", payload.stack);
+                    ui.setLoadingState(false);
+                    break;
+            }
+        }
+
+        async function uploadAnalysisResult(result) {
+            const { fileName, frameScores, keyFramesData } = result;
+            let framesToUpload = keyFramesData;
+            let uploadedKeyFrames = [];
+            
+            if (framesToUpload.length > 0) {
+                 const totalUploads = framesToUpload.length * 4;
+                 let completedUploads = 0;
+                 for (let i = 0; i < framesToUpload.length; i++) {
+                     const kf = framesToUpload[i];
+                     const timestamp = `${Date.now()}_${i}`;
+                     const basePath = `${C.STORAGE_PATH}/${timestamp}`;
+                     
+                     const onProgress = () => {
+                         completedUploads++;
+                         ui.updateUploadProgress(completedUploads / totalUploads);
+                     };
+                     
+                     const [sharpFullUrl, sharpCroppedUrl, blurryFullUrl, blurryCroppedUrl] = await Promise.all([
+                         api.uploadFile(`${basePath}_sf.jpeg`, kf.sharpFull).then(url => { onProgress(); return url; }),
+                         api.uploadFile(`${basePath}_sc.jpeg`, kf.sharpCropped).then(url => { onProgress(); return url; }),
+                         api.uploadFile(`${basePath}_bf.jpeg`, kf.blurryFull).then(url => { onProgress(); return url; }),
+                         api.uploadFile(`${basePath}_bc.jpeg`, kf.blurryCropped).then(url => { onProgress(); return url; }),
+                     ]);
+                     
+                     const { sharpFull, sharpCropped, blurryFull, blurryCropped, ...rest } = kf;
+                     uploadedKeyFrames.push({ ...rest, sharpFullUrl, sharpCroppedUrl, blurryFullUrl, blurryCroppedUrl });
+                 }
+            }
+            
+            const upperFileName = fileName.toUpperCase();
+            let table = '기타';
+            if (upperFileName.includes('ONYX')) table = 'ONYX';
+            else if (upperFileName.includes('DTD')) table = 'DTD';
+            else if (upperFileName.includes('LUXON')) table = 'LUXON';
+
+            const newAnalysis = {
+                fileName, frameScores, keyFrames: uploadedKeyFrames,
+                year: parseInt(D.yearInput.value, 10) || new Date().getFullYear(),
+                eventType: D.eventTypeInput.value.trim() || 'N/A',
+                day: D.dayInput.value.trim() || 'N/A',
+                table,
+                correctionCompleted: false
+            };
+            
+            const newDocId = await api.addAnalysis(newAnalysis);
+            AppState.lastAddedDocId = newDocId;
+            ui.appendLog(`'${fileName}' 분석 결과가 성공적으로 저장되었습니다.`, 'text-green-500');
+        }
+
+        async function handleStorageTest() {
+            const file = D.testFileInput.files[0];
+            ui.appendLog('[CLIENT] Storage 테스트 시작...', 'text-purple-400');
+            if (!file) { ui.appendLog('[CLIENT] 파일이 선택되지 않았습니다.', 'text-red-400'); return; }
+            if (!Firebase.auth.currentUser) { ui.appendLog('[CLIENT] 인증 정보가 없습니다.', 'text-red-400'); return; }
+            
+            const storagePath = `${C.TEST_STORAGE_PATH}/${Date.now()}_${file.name}`;
+            try {
+                const downloadURL = await api.uploadFile(storagePath, file, (progress) => {
+                    ui.appendLog(`[SERVER] 진행률: ${Math.round(progress * 100)}%`, 'text-green-500', 'SERVER');
+                });
+                ui.appendLog('[SERVER] Storage 업로드 성공!', 'text-green-500', 'SERVER');
+                ui.appendLog(`[SERVER] URL: ${downloadURL}`, 'text-blue-400', 'SERVER');
+            } catch (error) {
+                ui.appendLog(`[SERVER] Storage 업로드 실패: ${error.code}`, 'text-red-500', 'SERVER');
+            }
+        }
+
+        async function handleFirestoreTest() {
+            ui.appendLog('[CLIENT] Firestore 테스트 시작...', 'text-yellow-400');
+            if (!Firebase.auth.currentUser) { ui.appendLog('[CLIENT] 인증 정보가 없습니다.', 'text-red-400'); return; }
+            try {
+                const docRef = await addDoc(collection(Firebase.db, C.TEST_FIRESTORE_PATH), {
+                    message: "Firestore write test successful!",
+                    timestamp: serverTimestamp()
+                });
+                ui.appendLog(`[SERVER] Firestore 쓰기 성공! (문서 ID: ${docRef.id})`, 'text-green-500', 'SERVER');
+            } catch (error) {
+                ui.appendLog(`[SERVER] Firestore 쓰기 실패: ${error.code}`, 'text-red-500', 'SERVER');
+            }
+        }
+
+        window.onload = initialize;
+        window.onbeforeunload = () => {
+            if (AppState.currentLockedDocId) {
+                api.releaseLock(AppState.currentLockedDocId);
+            }
+        };
+
     </script>
 </body>
 </html>
